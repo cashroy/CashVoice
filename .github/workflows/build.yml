@@ -1,0 +1,62 @@
+name: Build CashVoice installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build APO (C++)
+        run: |
+          cmake -S apo -B apo/build -A x64
+          cmake --build apo/build --config Release
+
+      - name: Create self-signed certificate and sign the APO
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=CashVoice" `
+                    -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10) `
+                    -KeyExportPolicy Exportable
+          Export-Certificate -Cert $cert -FilePath installer\CashVoice.cer | Out-Null
+          $pw = ConvertTo-SecureString -String "ci" -AsPlainText -Force
+          $pfx = Join-Path $env:RUNNER_TEMP "vf.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pw | Out-Null
+          $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+                  Sort-Object FullName | Select-Object -Last 1
+          & $st.FullName sign /f $pfx /p ci /fd SHA256 apo\build\Release\CashVoiceAPO.dll
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+
+      - name: Publish app (.NET, self-contained)
+        run: >
+          dotnet publish app/CashVoice.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+
+      - name: Build installer (Inno Setup)
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\CashVoice.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CashVoice-Setup
+          path: installer/Output/CashVoice-Setup.exe
+
+      - name: Publish GitHub Release (on version tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/Output/CashVoice-Setup.exe
+          generate_release_notes: true

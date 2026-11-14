@@ -1,0 +1,10 @@
+apo/build/
+apo/test/t
+apo/test/out.raw
+app/bin/
+app/obj/
+publish/
+installer/Output/
+installer/CashVoice.cer
+.vs/
+*.user

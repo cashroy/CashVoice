@@ -1,0 +1,139 @@
+<Window x:Class="CashVoice.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:CashVoice.Controls"
+        Title="CashVoice" Width="940" Height="680" MinWidth="800" MinHeight="540"
+        WindowStartupLocation="CenterScreen" AllowDrop="True" Drop="Window_Drop">
+  <DockPanel Margin="12">
+
+    <Border DockPanel.Dock="Top" Padding="12" Margin="0,0,0,10" CornerRadius="8"
+            Background="#FFF2F4F8" BorderBrush="#FFD5D9E2" BorderThickness="1">
+      <DockPanel>
+        <ToggleButton x:Name="VoiceToggle" DockPanel.Dock="Right" Width="160" Height="42"
+                      FontSize="15" FontWeight="SemiBold" Content="Voice: OFF" Click="VoiceToggle_Click"/>
+        <StackPanel>
+          <TextBlock Text="CashVoice" FontSize="22" FontWeight="Bold"/>
+          <TextBlock x:Name="StatusText" Foreground="#FF555B6B" Margin="0,2,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <TabControl x:Name="Tabs">
+
+      <!-- ============ VOICE ============ -->
+      <TabItem Header="Voice">
+        <Grid Margin="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="270"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <DockPanel Grid.Column="0" Margin="0,0,14,0">
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+              <Button Content="+ Custom" Padding="10,4" Click="AddVoice_Click"/>
+              <Button Content="Delete" Padding="10,4" Margin="6,0,0,0" Click="DeleteVoice_Click"/>
+              <Button Content="Reset all" Padding="10,4" Margin="6,0,0,0" Click="ResetVoices_Click"/>
+            </StackPanel>
+            <ListBox x:Name="VoiceList" DisplayMemberPath="Display" SelectionChanged="VoiceList_SelectionChanged"/>
+          </DockPanel>
+          <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="VoiceEditor"/>
+          </ScrollViewer>
+        </Grid>
+      </TabItem>
+
+      <!-- ============ SOUNDBOARD ============ -->
+      <TabItem Header="Soundboard">
+        <Grid Margin="10">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Import file…" Padding="12,4" Margin="6,0,0,0" Click="ImportFile_Click"/>
+              <Button x:Name="DownloadBtn" DockPanel.Dock="Right" Content="Download from link" Padding="12,4" Margin="6,0,0,0" Click="Download_Click"/>
+              <TextBox x:Name="UrlBox" Height="28" VerticalContentAlignment="Center"
+                       ToolTip="Paste a YouTube link here, then press Download"/>
+            </DockPanel>
+            <TextBlock x:Name="ImportStatus" Foreground="#FF555B6B" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Text="Paste a YouTube link, click Import file…, or drag audio files onto this window."/>
+          </StackPanel>
+          <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+            <ListBox x:Name="SoundList" Grid.Column="0" SelectionChanged="SoundList_SelectionChanged">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <DockPanel Margin="2">
+                    <Button DockPanel.Dock="Left" Content="▶" Width="34" Margin="0,0,10,0" Click="PlaySound_Click"/>
+                    <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+                  </DockPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <StackPanel x:Name="SoundDetails" Grid.Column="1" Margin="14,0,0,0" IsEnabled="False">
+              <TextBlock Text="Name" FontWeight="SemiBold"/>
+              <TextBox x:Name="SoundName" Margin="0,2,0,10" LostFocus="SoundName_LostFocus"/>
+              <TextBlock Text="Volume" FontWeight="SemiBold"/>
+              <Slider x:Name="SoundVolume" Minimum="0" Maximum="1.5" Value="1" Margin="0,2,0,10" ValueChanged="SoundVolume_Changed"/>
+              <TextBlock Text="Hotkey" FontWeight="SemiBold"/>
+              <c:HotkeyBox x:Name="SoundHotkey" Margin="0,2,0,14" HorizontalAlignment="Left"/>
+              <Button Content="Delete sound" Padding="10,4" HorizontalAlignment="Left" Click="DeleteSound_Click"/>
+            </StackPanel>
+          </Grid>
+        </Grid>
+      </TabItem>
+
+      <!-- ============ SETTINGS ============ -->
+      <TabItem Header="Settings">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="10" MaxWidth="720" HorizontalAlignment="Left">
+
+            <TextBlock Text="Microphones that get the CashVoice effect" FontSize="15" FontWeight="SemiBold"/>
+            <TextBlock Foreground="#FF555B6B" TextWrapping="Wrap" Margin="0,2,0,6"
+                       Text="Tick your real mic(s) and press Apply (Windows will ask for admin permission and restart the audio service for a second). Apps then just use that mic as normal — no virtual devices."/>
+            <StackPanel x:Name="MicList" Margin="0,0,0,6"/>
+            <StackPanel Orientation="Horizontal">
+              <Button Content="Apply…" Padding="14,4" Click="ApplyMics_Click"/>
+              <Button Content="Refresh list" Padding="14,4" Margin="6,0,0,0" Click="RefreshMics_Click"/>
+            </StackPanel>
+
+            <Separator Margin="0,16"/>
+            <TextBlock Text="Audio" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <CheckBox x:Name="ChkSoundsIntoMic" Content="Play soundboard sounds into the microphone" Click="Settings_Changed" Margin="0,2"/>
+            <CheckBox x:Name="ChkMonitor" Content="Also play soundboard sounds on my speakers/headphones" Click="Settings_Changed" Margin="0,2"/>
+            <Grid Margin="0,8,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <TextBlock Text="Mic volume" VerticalAlignment="Center"/>
+              <Slider x:Name="SldMic" Grid.Column="1" Minimum="0" Maximum="2" ValueChanged="Settings_Slider"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <TextBlock Text="Soundboard volume (in mic)" VerticalAlignment="Center"/>
+              <Slider x:Name="SldSound" Grid.Column="1" Minimum="0" Maximum="2" ValueChanged="Settings_Slider"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <TextBlock Text="Soundboard volume (speakers)" VerticalAlignment="Center"/>
+              <Slider x:Name="SldLocal" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="Settings_Slider"/>
+            </Grid>
+
+            <Separator Margin="0,16"/>
+            <TextBlock Text="Global hotkeys" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <StackPanel x:Name="GlobalHotkeys"/>
+            <TextBlock x:Name="HotkeyStatus" Foreground="#FFB3261E" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            <TextBlock Foreground="#FF555B6B" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="Each voice has its own hotkey on the Voice tab, and each sound on the Soundboard tab."/>
+
+            <Separator Margin="0,16"/>
+            <TextBlock Text="General" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <CheckBox x:Name="ChkAutostart" Content="Start CashVoice with Windows (minimised to tray)" Click="Settings_Changed" Margin="0,2"/>
+            <Button Content="Update yt-dlp" Padding="14,4" Margin="0,10,0,0" HorizontalAlignment="Left" Click="UpdateYtDlp_Click"/>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
