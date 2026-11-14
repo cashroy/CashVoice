@@ -26,7 +26,7 @@ public static class ApoInstaller
     static readonly string[] Modes =
     {
         "{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}",   // Default
-        "{98951333-B9CD-48B1-A0E3-03F09A2D5E65}",   // Communications (Discord/Teams/etc.)
+        "{98951333-B9CD-48B1-A0A3-FF40682D73F7}",   // Communications (Discord/Teams/etc.)
     };
 
     // ---- public API ------------------------------------------------------------------

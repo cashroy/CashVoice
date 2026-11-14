@@ -20,8 +20,12 @@ DisableProgramGroupPage=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 
 [Files]
-Source: "..\publish\CashVoice.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\apo\build\Release\CashVoiceAPO.dll"; DestDir: "{app}"; Flags: ignoreversion
+; audiodg.exe is native, so the APO must match the OS architecture:
+; an x64 DLL can never load into the audio engine on Windows on ARM.
+Source: "..\publish\x64\CashVoice.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: not IsArm64
+Source: "..\apo\build\x64\Release\CashVoiceAPO.dll"; DestDir: "{app}"; Flags: ignoreversion; Check: not IsArm64
+Source: "..\publish\arm64\CashVoice.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: IsArm64
+Source: "..\apo\build\arm64\Release\CashVoiceAPO.dll"; DestDir: "{app}"; Flags: ignoreversion; Check: IsArm64
 Source: "CashVoice.cer"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
