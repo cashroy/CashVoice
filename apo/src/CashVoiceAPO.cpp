@@ -73,10 +73,28 @@ static void Log(const wchar_t* fmt, ...) {
     char line[600];
     int n = _snprintf_s(line, sizeof(line), _TRUNCATE, "%04u-%02u-%02u %02u:%02u:%02u pid=%lu %ls\r\n",
                         t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, GetCurrentProcessId(), msg);
+    OutputDebugStringA(line);
     HANDLE f = CreateFileW(L"C:\\ProgramData\\CashVoice\\apo.log", FILE_APPEND_DATA,
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return;
+    if (f == INVALID_HANDLE_VALUE) {
+        // Diagnostics: say why, in a place the audio engine (LOCAL SERVICE) can always write to.
+        DWORD err = GetLastError();
+        wchar_t tmp[MAX_PATH];
+        DWORD n2 = GetTempPathW(MAX_PATH, tmp);
+        if (n2 == 0 || n2 > MAX_PATH - 32) return;
+        StringCchCatW(tmp, MAX_PATH, L"CashVoiceAPO.log");
+        HANDLE g = CreateFileW(tmp, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (g == INVALID_HANDLE_VALUE) return;
+        char extra[64];
+        int m = _snprintf_s(extra, sizeof(extra), _TRUNCATE, "(apo.log open failed, error %lu) ", err);
+        DWORD w2 = 0;
+        if (m > 0) WriteFile(g, extra, (DWORD)m, &w2, nullptr);
+        if (n > 0) WriteFile(g, line, (DWORD)n, &w2, nullptr);
+        CloseHandle(g);
+        return;
+    }
     LARGE_INTEGER size{};
     if (GetFileSizeEx(f, &size) && size.QuadPart > 256 * 1024) {   // keep it small
         CloseHandle(f);
@@ -175,7 +193,12 @@ public:
             *ppv = static_cast<IAudioProcessingObjectConfiguration*>(this);
         else if (IsEqualGUID(riid, __uuidof(IVfSystemEffects)))
             *ppv = static_cast<IVfSystemEffects*>(this);
-        else return E_NOINTERFACE;
+        else {
+            wchar_t i[64] = L"?";
+            StringFromGUID2(riid, i, 64);
+            Log(L"QueryInterface: no %s", i);
+            return E_NOINTERFACE;
+        }
         AddRef();
         return S_OK;
     }
@@ -229,7 +252,12 @@ public:
         if (!pRequested || !ppSupported) return E_POINTER;
         *ppSupported = nullptr;
         UINT32 ch = 0;
-        if (!IsFloat32(pRequested, &ch, nullptr)) return APOERR_FORMAT_NOT_SUPPORTED;
+        if (!IsFloat32(pRequested, &ch, nullptr)) {
+            const WAVEFORMATEX* wf = pRequested->GetAudioFormat();
+            Log(L"IsInputFormatSupported: rejected tag=%u bits=%u ch=%u", wf ? wf->wFormatTag : 0,
+                wf ? wf->wBitsPerSample : 0, wf ? wf->nChannels : 0);
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
         *ppSupported = pRequested;
         pRequested->AddRef();
         m_channels = ch;
@@ -363,11 +391,13 @@ public:
     }
     STDMETHOD(CreateInstance)(IUnknown* outer, REFIID riid, void** ppv) override {
         if (outer) return CLASS_E_NOAGGREGATION;
-        Log(L"CreateInstance");
+        wchar_t i[64] = L"?";
+        StringFromGUID2(riid, i, 64);
         CashVoiceAPO* apo = new (std::nothrow) CashVoiceAPO();
         if (!apo) return E_OUTOFMEMORY;
         HRESULT hr = apo->QueryInterface(riid, ppv);
         apo->Release();
+        Log(L"CreateInstance iid=%s -> 0x%08lX", i, (unsigned long)hr);
         return hr;
     }
     STDMETHOD(LockServer)(BOOL lock) override {
@@ -383,6 +413,11 @@ BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID) {
 }
 
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
+    wchar_t c[64] = L"?", i[64] = L"?", exe[MAX_PATH] = L"?";
+    StringFromGUID2(rclsid, c, 64);
+    StringFromGUID2(riid, i, 64);
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    Log(L"DllGetClassObject clsid=%s iid=%s in %s", c, i, exe);
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
     if (!IsEqualGUID(rclsid, CLSID_CashVoiceAPO)) return CLASS_E_CLASSNOTAVAILABLE;
