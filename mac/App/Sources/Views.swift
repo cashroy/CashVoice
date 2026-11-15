@@ -23,7 +23,7 @@ struct MainView: View {
                 ForEach(Tab.allCases, id: \.self) { t in
                     Button { tab = t } label: {
                         VStack(spacing: 8) {
-                            Text(t.rawValue).font(.system(size: 15, weight: .bold))
+                            Text(t.rawValue).font(cvFont(15, .bold))
                                 .foregroundColor(tab == t ? .cvInk : .secondary)
                             Rectangle().fill(tab == t ? Color.cvRed : .clear).frame(height: 3)
                         }.fixedSize()
@@ -43,6 +43,7 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 860, minHeight: 640)
+        .font(cvFont(14))
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }
@@ -53,15 +54,15 @@ struct Header: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
                 (Text("CashVoice").foregroundColor(.white) + Text(".").foregroundColor(.cvInk))
-                    .font(.system(size: 36, weight: .black)).kerning(-1.2)
-                Text(store.statusText).font(.system(size: 13, weight: .medium)).foregroundColor(.white.opacity(0.9))
+                    .font(cvFont(36, .black)).kerning(-1.2)
+                Text(store.statusText).font(cvFont(13, .medium)).foregroundColor(.white.opacity(0.9))
                     .lineLimit(2)
             }
             Spacer()
             Button { store.toggleVoice() } label: {
                 HStack(spacing: 8) {
                     Circle().fill(store.cfg.voiceEnabled ? Color.cvRed : Color.secondary).frame(width: 9, height: 9)
-                    Text(store.cfg.voiceEnabled ? "Voice on" : "Voice off").font(.system(size: 15, weight: .bold))
+                    Text(store.cfg.voiceEnabled ? "Voice on" : "Voice off").font(cvFont(15, .bold))
                         .foregroundColor(.cvRed)
                 }
                 .padding(.horizontal, 26).frame(height: 44)
@@ -76,7 +77,7 @@ struct Header: View {
 struct Eyebrow: View {
     let text: String
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 11, weight: .bold)).foregroundColor(.cvRed).kerning(0.4)
+        Text(text.uppercased()).font(cvFont(11, .bold)).foregroundColor(.cvRed).kerning(0.4)
     }
 }
 
@@ -141,7 +142,7 @@ struct VoiceEditor: View {
                         set: { store.cfg.voices[min(index, store.cfg.voices.count - 1)] = $0 })
         VStack(alignment: .leading, spacing: 10) {
             Eyebrow(text: "Name")
-            TextField("Name", text: v.name).textFieldStyle(.roundedBorder).font(.system(size: 14))
+            TextField("Name", text: v.name).textFieldStyle(.roundedBorder).font(cvFont(14))
             Eyebrow(text: "Hotkey · picks this voice and turns it on").padding(.top, 8)
             HotkeyField(value: Binding(get: { v.wrappedValue.hotkey },
                                        set: { v.wrappedValue.hotkey = $0; store.onHotkeysChanged?() }))
@@ -172,7 +173,7 @@ struct SliderRow: View {
         HStack {
             Text(label).frame(width: 200, alignment: .leading)
             Slider(value: $value, in: range, step: step).tint(.cvRed)
-            Text(format(value)).font(.system(size: 13, weight: .bold)).frame(width: 64, alignment: .trailing)
+            Text(format(value)).font(cvFont(13, .bold)).frame(width: 64, alignment: .trailing)
         }
     }
 }
@@ -180,7 +181,7 @@ struct SliderRow: View {
 struct KeyTag: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 11, weight: .semibold))
+        Text(text).font(cvFont(11, .semibold))
             .padding(.horizontal, 7).padding(.vertical, 2)
             .overlay(Capsule().stroke(Color.primary.opacity(0.6), lineWidth: 1.2))
     }
@@ -198,7 +199,7 @@ struct HotkeyField: View {
         } label: {
             Text(recording ? "Press keys…" : (value?.label ?? "None"))
                 .frame(maxWidth: .infinity, minHeight: 28)
-                .font(.system(size: 13, weight: .semibold))
+                .font(cvFont(13, .semibold))
         }
         .buttonStyle(.bordered)
         .help("Click, then press a key combo. Delete clears it.")
@@ -236,7 +237,7 @@ struct SoundTab: View {
                 Button("Download") { download() }.disabled(busy || link.isEmpty)
                 Button("Import file") { importFiles() }
             }
-            Text(status).font(.system(size: 12)).foregroundColor(.secondary)
+            Text(status).font(cvFont(12)).foregroundColor(.secondary)
 
             HStack(alignment: .top, spacing: 28) {
                 VStack(alignment: .leading) {
@@ -338,7 +339,7 @@ struct DbSlider: View {
         HStack {
             Slider(value: db, in: min...max, step: 0.5).tint(.cvRed)
             Text(db.wrappedValue <= min + 0.01 ? "off" : String(format: "%+.1f dB", db.wrappedValue))
-                .font(.system(size: 13, weight: .bold)).frame(width: 70, alignment: .trailing)
+                .font(cvFont(13, .bold)).frame(width: 70, alignment: .trailing)
         }
     }
 }
@@ -354,7 +355,7 @@ struct SettingsTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Eyebrow(text: "Microphone")
-                Text("Your real microphone").font(.system(size: 22, weight: .black))
+                Text("Your real microphone").font(cvFont(22, .black))
                 Text("CashVoice listens to this mic and sends your changed voice to **CashVoice Mic**. In Discord, OBS, Zoom, games etc. choose **CashVoice Mic** as the input.")
                     .foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
@@ -370,25 +371,25 @@ struct SettingsTab: View {
 
                 Divider().padding(.vertical, 14)
                 Eyebrow(text: "Audio")
-                Text("Levels").font(.system(size: 22, weight: .black))
+                Text("Levels").font(cvFont(22, .black))
                 Toggle("Play soundboard sounds into CashVoice Mic", isOn: $store.cfg.soundsIntoMic)
                 Toggle("Also play them on my speakers / headphones", isOn: $store.cfg.soundsOnSpeakers)
                 LevelRow(label: "Mic volume", gain: $store.cfg.micGain, min: -30, max: 12)
                 LevelRow(label: "Soundboard volume (in mic)", gain: $store.cfg.soundGain, min: -30, max: 12)
                 LevelRow(label: "Soundboard volume (speakers)", gain: $store.cfg.localVolume, min: -40, max: 6)
-                Text("0 dB is normal. Sounds are loudness-matched when they're loaded.").font(.system(size: 12)).foregroundColor(.secondary)
+                Text("0 dB is normal. Sounds are loudness-matched when they're loaded.").font(cvFont(12)).foregroundColor(.secondary)
 
                 Divider().padding(.vertical, 14)
                 Eyebrow(text: "Monitor")
-                Text("Hear yourself").font(.system(size: 22, weight: .black))
+                Text("Hear yourself").font(cvFont(22, .black))
                 Toggle("Play my mic in my headphones", isOn: $store.cfg.hearSelf)
                 Toggle("With the voice effect (untick to hear your normal voice)", isOn: $store.cfg.hearWet)
                 LevelRow(label: "Monitor volume", gain: $store.cfg.hearVolume, min: -40, max: 6)
-                Text("Use headphones: on speakers your mic hears itself and howls.").font(.system(size: 12)).foregroundColor(.secondary)
+                Text("Use headphones: on speakers your mic hears itself and howls.").font(cvFont(12)).foregroundColor(.secondary)
 
                 Divider().padding(.vertical, 14)
                 Eyebrow(text: "Hotkeys")
-                Text("Global shortcuts").font(.system(size: 22, weight: .black))
+                Text("Global shortcuts").font(cvFont(22, .black))
                 ForEach(Config.actions) { a in
                     HStack {
                         Text(a.label).frame(width: 230, alignment: .leading)
@@ -399,7 +400,7 @@ struct SettingsTab: View {
                 }
                 if !HotkeyCenter.shared.failed.isEmpty {
                     Text("Couldn't register (used by another app?): " + HotkeyCenter.shared.failed.joined(separator: ", "))
-                        .foregroundColor(.cvRed).font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.cvRed).font(cvFont(12, .semibold))
                 }
 
                 Divider().padding(.vertical, 14)
@@ -410,9 +411,9 @@ struct SettingsTab: View {
                         loginItem = on; loginError = ""
                     } catch { loginError = error.localizedDescription }
                 }))
-                if !loginError.isEmpty { Text(loginError).font(.system(size: 12)).foregroundColor(.cvRed) }
+                if !loginError.isEmpty { Text(loginError).font(cvFont(12)).foregroundColor(.cvRed) }
                 Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
-                    .font(.system(size: 12)).foregroundColor(.secondary).padding(.top, 8)
+                    .font(cvFont(12)).foregroundColor(.secondary).padding(.top, 8)
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 20)
@@ -458,5 +459,15 @@ struct MenuContent: View {
             openWindow(id: "main")
         }
         Button("Quit CashVoice") { NSApp.terminate(nil) }
+    }
+}
+
+// MARK: - Type
+
+/// Futura (ships with macOS) like the website's headings; heavier weights use Futura Bold.
+func cvFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+    switch weight {
+    case .black, .heavy, .bold: return .custom("Futura-Bold", size: size)
+    default: return .custom("Futura-Medium", size: size)
     }
 }
