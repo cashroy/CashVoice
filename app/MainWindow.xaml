@@ -56,7 +56,7 @@
                 <DataTemplate>
                   <DockPanel>
                     <Border DockPanel.Dock="Right" Style="{StaticResource KeyTag}" x:Name="tag">
-                      <TextBlock Text="{Binding Hotkey}" FontSize="11" FontWeight="SemiBold"/>
+                      <TextBlock Text="{Binding HotkeyLabel}" FontSize="11" FontWeight="SemiBold"/>
                     </Border>
                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                   </DockPanel>
@@ -107,7 +107,7 @@
                       <Button DockPanel.Dock="Left" Style="{StaticResource Play}" Margin="0,0,14,0"
                               ToolTip="Play" Click="PlaySound_Click"/>
                       <Border DockPanel.Dock="Right" Style="{StaticResource KeyTag}" x:Name="tag">
-                        <TextBlock Text="{Binding Hotkey}" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding HotkeyLabel}" FontSize="11" FontWeight="SemiBold"/>
                       </Border>
                       <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="15" TextTrimming="CharacterEllipsis"/>
                     </DockPanel>

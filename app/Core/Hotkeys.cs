@@ -25,6 +25,27 @@ public readonly record struct Hotkey(uint Mods, uint Vk)
         return string.Join("+", parts);
     }
 
+    /// <summary>How a stored hotkey ("Alt+OemComma") is shown to people ("Alt+,").</summary>
+    public static string Pretty(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var parts = s.Split('+');
+        for (int i = 0; i < parts.Length; i++)
+            parts[i] = parts[i].Trim() switch
+            {
+                "OemComma" => ",", "OemPeriod" => ".", "OemMinus" => "-", "OemPlus" => "=",
+                "Oem1" or "OemSemicolon" => ";", "Oem2" or "OemQuestion" => "/", "Oem3" or "OemTilde" => "`",
+                "Oem4" or "OemOpenBrackets" => "[", "Oem5" or "OemPipe" => "\\", "Oem6" or "OemCloseBrackets" => "]",
+                "Oem7" or "OemQuotes" => "'", "OemBackslash" or "Oem102" => "\\",
+                "Next" or "PageDown" => "PgDn", "Prior" or "PageUp" => "PgUp", "Return" or "Enter" => "Enter",
+                "Back" => "Backspace", "Capital" => "CapsLock", "Scroll" => "ScrollLock", "Snapshot" => "PrtSc",
+                "Multiply" => "Num *", "Add" => "Num +", "Subtract" => "Num -", "Divide" => "Num /", "Decimal" => "Num .",
+                var x when x.StartsWith("NumPad") && x.Length == 7 => "Num " + x[6],
+                var x => x,
+            };
+        return string.Join("+", parts);
+    }
+
     public static Hotkey Parse(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return default;

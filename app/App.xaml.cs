@@ -68,7 +68,7 @@ public partial class App : Application
             return;
         }
 
-        _mutex = new Mutex(true, "CashVoice.SingleInstance", out bool created);
+        _mutex = new Mutex(true, AppPaths.ScreenshotMode ? "CashVoice.Screenshot" : "CashVoice.SingleInstance", out bool created);
         if (!created && args.Contains("--updated"))
         {
             // Relaunched by the updater: give the old copy a few seconds to exit.

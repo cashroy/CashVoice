@@ -11,7 +11,15 @@ namespace CashVoice.Core;
 
 public static class AppPaths
 {
-    public static readonly string Root =
+    /// <summary>
+    /// Screenshot mode (for the website): CASHVOICE_SCREENSHOT_DATA=&lt;folder&gt; runs a separate copy
+    /// with its own settings that never touches the audio driver, hotkeys or updates.
+    /// </summary>
+    public static readonly string? ScreenshotData =
+        Environment.GetEnvironmentVariable("CASHVOICE_SCREENSHOT_DATA") is { Length: > 0 } d ? d : null;
+    public static bool ScreenshotMode => ScreenshotData != null;
+
+    public static readonly string Root = ScreenshotData ??
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CashVoice");
     public static string Sounds => Path.Combine(Root, "Sounds");
     public static string Bin => Path.Combine(Root, "bin");
@@ -47,7 +55,9 @@ public sealed class VoicePreset : Notifier
     public string Hotkey { get; set; } = "";
 
     [JsonIgnore]
-    public string Display => string.IsNullOrEmpty(Hotkey) ? Name : $"{Name}   [{Hotkey}]";
+    public string Display => string.IsNullOrEmpty(Hotkey) ? Name : $"{Name}   [{HotkeyLabel}]";
+    [JsonIgnore]
+    public string HotkeyLabel => CashVoice.Core.Hotkey.Pretty(Hotkey);
 }
 
 public sealed class SoundItem : Notifier
@@ -59,7 +69,9 @@ public sealed class SoundItem : Notifier
     public string Hotkey { get; set; } = "";
 
     [JsonIgnore]
-    public string Display => string.IsNullOrEmpty(Hotkey) ? Name : $"{Name}   [{Hotkey}]";
+    public string Display => string.IsNullOrEmpty(Hotkey) ? Name : $"{Name}   [{HotkeyLabel}]";
+    [JsonIgnore]
+    public string HotkeyLabel => CashVoice.Core.Hotkey.Pretty(Hotkey);
 }
 
 public sealed class AppConfig

@@ -19,10 +19,13 @@ public sealed class HotkeyBox : TextBox
         ToolTip = "Click, then press a key combo. Backspace clears it.";
     }
 
+    string _value = "";
+
+    /// <summary>The stored form ("Alt+OemComma"); the box shows the friendly form ("Alt+,").</summary>
     public string Value
     {
-        get => Text;
-        set => Text = value ?? "";
+        get => _value;
+        set { _value = value ?? ""; Text = Hotkey.Pretty(_value); }
     }
 
     static bool CanBeBare(Key k) =>

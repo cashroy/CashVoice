@@ -116,10 +116,10 @@ public partial class MainWindow : Window
         Tick();
 
         VersionText.Text = $"Version {Updater.Current}";
-        _updateTimer.Tick += async (_, _) => { if (_cfg.AutoUpdate) await CheckForUpdatesAsync(false); };
+        _updateTimer.Tick += async (_, _) => { if (_cfg.AutoUpdate && !AppPaths.ScreenshotMode) await CheckForUpdatesAsync(false); };
         _updateTimer.Start();
         if (_cfg.AutoUpdate)
-            Dispatcher.BeginInvoke(async () => { await Task.Delay(8000); await CheckForUpdatesAsync(false); });
+            Dispatcher.BeginInvoke(async () => { await Task.Delay(8000); if (!AppPaths.ScreenshotMode) await CheckForUpdatesAsync(false); });
     }
 
     // =====================================================================================
@@ -473,6 +473,14 @@ public partial class MainWindow : Window
     void RefreshMics()
     {
         MicList.Children.Clear();
+        if (AppPaths.ScreenshotMode)        // neutral example devices, not the real PC's
+        {
+            foreach (var (name, on) in new[] { ("Microphone (USB Audio Device)  · default", true),
+                                               ("Headset Microphone (Bluetooth)", false),
+                                               ("Microphone (Webcam)", false) })
+                MicList.Children.Add(new CheckBox { Content = name, IsChecked = on, Margin = new Thickness(0, 2, 0, 2) });
+            return;
+        }
         try
         {
             var enabled = ApoInstaller.EnabledEndpoints();
@@ -636,6 +644,7 @@ public partial class MainWindow : Window
     void RebuildHotkeys()
     {
         _hk.Clear();
+        if (AppPaths.ScreenshotMode) return;      // don't take the real app's hotkeys
         var failed = new List<string>();
 
         void Add(string? text, string label, Action action)
@@ -717,6 +726,11 @@ public partial class MainWindow : Window
     {
         if (_ticks % 5 == 0) _shm.RefreshLayout();
         // While the driver isn't running, look for it every 3 s instead of every second.
+        if (AppPaths.ScreenshotMode)
+        {
+            StatusText.Text = "Live on your mic · 48 kHz";
+            return;
+        }
         if (!_shm.Connected && (++_ticks % 3 == 0 || _ticks == 1) && _shm.TryConnect()) PushParams();
         else if (_shm.Connected) PushParams();     // heartbeat: keeps the APO in sync if audio service restarted
 
