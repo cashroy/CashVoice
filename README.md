@@ -7,7 +7,9 @@ A Clownfish-style system-wide voice changer + soundboard for Windows 10/11 (x64)
 * **Soundboard** — import files, drag & drop, or paste a YouTube link (downloaded with yt-dlp into `%APPDATA%\CashVoice\Sounds`). Sounds play *into the mic* (and optionally on your speakers).
 * **Custom pitch slider (±24 semitones) on every voice.
 * **Hotkeys for everything** — voice on/off, next/previous voice, mute mic, stop sounds, one hotkey per voice and per sound.
-* Tray app, optional start-with-Windows.
+* Tray app, optional start-with-Windows. Closing the window keeps it running in the tray (hotkeys stay live).
+* **Light on resources** — ~20 MB RAM and ~0% CPU while in the tray; the soundboard mixer sleeps when nothing is playing.
+* **In-app updates** — checks GitHub Releases, downloads just the new `CashVoice.exe` (~1 MB, plus the APO if it changed), swaps it in place and relaunches. No reinstall.
 
 ## Get the installer (no Visual Studio needed)
 

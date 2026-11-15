@@ -13,6 +13,9 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Version>0.1.0</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Framework-dependent: the installer adds the .NET 8 Desktop Runtime if missing. Runs on newer runtimes too. -->
+    <RollForward>Major</RollForward>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />

@@ -35,9 +35,17 @@ public sealed unsafe class SharedMem : IDisposable
     SharedHeader* H => (SharedHeader*)_base;
     float* Ring => (float*)(_base + HeaderSize);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr OpenFileMappingW(uint access, bool inherit, string name);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
     public bool TryConnect()
     {
         if (_connected) return true;
+        // Cheap existence check first: avoids throwing an exception every poll while the APO isn't loaded.
+        IntPtr probe = OpenFileMappingW(0x0004 /*FILE_MAP_READ*/, false, MapName);
+        if (probe == IntPtr.Zero) return false;
+        CloseHandle(probe);
         try
         {
             long size = HeaderSize + (long)RingFrames * sizeof(float);

@@ -19,6 +19,14 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Work out the version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          else { $v = ([xml](Get-Content app/CashVoice.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1 }
+          "VERSION=$v" >> $env:GITHUB_ENV
+          "Building version $v"
+
       - name: Build APO (C++, x64 + ARM64)
         run: |
           cmake -S apo -B apo/build/x64 -A x64
@@ -26,41 +34,70 @@ jobs:
           cmake -S apo -B apo/build/arm64 -A ARM64
           cmake --build apo/build/arm64 --config Release
 
-      - name: Create self-signed certificate and sign the APO
+      # Sign with the same certificate every build (repo secrets), so in-place updates of the APO
+      # stay trusted on machines that installed an earlier version. Falls back to a throwaway cert.
+      - name: Sign the APO
         shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.CASHVOICE_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.CASHVOICE_PFX_PASSWORD }}
         run: |
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=CashVoice" `
-                    -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10) `
-                    -KeyExportPolicy Exportable
-          Export-Certificate -Cert $cert -FilePath installer\CashVoice.cer | Out-Null
-          $pw = ConvertTo-SecureString -String "ci" -AsPlainText -Force
-          $pfx = Join-Path $env:RUNNER_TEMP "vf.pfx"
-          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pw | Out-Null
+          $pfx = Join-Path $env:RUNNER_TEMP "cv.pfx"
+          if ($env:PFX_BASE64) {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+            $pass = $env:PFX_PASSWORD
+            $cert = Get-PfxData -FilePath $pfx -Password (ConvertTo-SecureString $pass -AsPlainText -Force)
+            [IO.File]::WriteAllBytes("installer\CashVoice.cer", $cert.EndEntityCertificates[0].RawData)
+          } else {
+            Write-Warning "No signing secret set: using a throwaway certificate."
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=CashVoice" `
+                      -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10) -KeyExportPolicy Exportable
+            Export-Certificate -Cert $cert -FilePath installer\CashVoice.cer | Out-Null
+            $pass = "ci"
+            Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $pass -AsPlainText -Force) | Out-Null
+          }
           $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
                   Sort-Object FullName | Select-Object -Last 1
           foreach ($a in 'x64', 'arm64') {
-            & $st.FullName sign /f $pfx /p ci /fd SHA256 "apo\build\$a\Release\CashVoiceAPO.dll"
+            & $st.FullName sign /f $pfx /p $pass /fd SHA256 "apo\build\$a\Release\CashVoiceAPO.dll"
             if ($LASTEXITCODE -ne 0) { throw "signtool failed ($a)" }
           }
+          Remove-Item $pfx
 
-      - name: Publish app (.NET, self-contained, x64 + ARM64)
+      # Framework-dependent (~1 MB exe, small updates, less RAM); the installer adds the
+      # .NET 8 Desktop Runtime when a PC doesn't have one.
+      - name: Publish app (.NET, framework-dependent, x64 + ARM64)
         run: |
-          dotnet publish app/CashVoice.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/x64
-          dotnet publish app/CashVoice.csproj -c Release -r win-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/arm64
+          foreach ($rid in 'x64', 'arm64') {
+            dotnet publish app/CashVoice.csproj -c Release -r win-$rid --self-contained false -p:PublishSingleFile=true -p:Version=${{ env.VERSION }} -o publish/$rid
+            if ($LASTEXITCODE -ne 0) { throw "publish failed ($rid)" }
+          }
 
       - name: Build installer (Inno Setup)
         run: |
           choco install innosetup -y --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\CashVoice.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ env.VERSION }} installer\CashVoice.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Collect release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item installer\Output\CashVoice-Setup.exe dist\
+          foreach ($a in 'x64', 'arm64') {
+            Copy-Item "publish\$a\CashVoice.exe" "dist\CashVoice-$a.exe"            # used by in-app updates
+            Copy-Item "apo\build\$a\Release\CashVoiceAPO.dll" "dist\CashVoiceAPO-$a.dll"
+          }
+          Get-ChildItem dist | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: CashVoice-Setup
-          path: installer/Output/CashVoice-Setup.exe
+          path: dist/CashVoice-Setup.exe
 
       - name: Publish GitHub Release (on version tags)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/Output/CashVoice-Setup.exe
+          files: dist/*
           generate_release_notes: true

@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     readonly SoundEngine _snd;
     readonly HotkeyManager _hk;
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(6) };
+    Updater.Release? _update;
+    bool _updating;
+    int _ticks;
     readonly List<Action> _syncers = new();
     readonly Dictionary<string, HotkeyBox> _globalBoxes = new();
 
@@ -55,6 +59,23 @@ public partial class MainWindow : Window
         DwmSetWindowAttribute(hwnd, 36, ref white, 4); // DWMWA_TEXT_COLOR
     }
 
+    // ---- low memory while in the tray -------------------------------------------------------
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
+
+    /// <summary>Free what the UI was using and hand idle pages back to Windows.</summary>
+    public static void TrimMemory()
+    {
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        using var me = System.Diagnostics.Process.GetCurrentProcess();
+        SetProcessWorkingSetSize(me.Handle, (IntPtr)(-1), (IntPtr)(-1));
+    }
+
+    void TrimSoon()
+    {
+        Dispatcher.BeginInvoke(async () => { await Task.Delay(1500); if (!IsVisible) TrimMemory(); });
+    }
+
     static System.Drawing.Icon AppIcon()
     {
         try { return System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application; }
@@ -85,6 +106,70 @@ public partial class MainWindow : Window
         _timer.Tick += (_, _) => Tick();
         _timer.Start();
         Tick();
+
+        VersionText.Text = $"Version {Updater.Current}";
+        _updateTimer.Tick += async (_, _) => { if (_cfg.AutoUpdate) await CheckForUpdatesAsync(false); };
+        _updateTimer.Start();
+        if (_cfg.AutoUpdate)
+            Dispatcher.BeginInvoke(async () => { await Task.Delay(8000); await CheckForUpdatesAsync(false); });
+    }
+
+    // =====================================================================================
+    //  Updates
+    // =====================================================================================
+    async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (_updating) return;
+        try
+        {
+            if (manual) VersionText.Text = "Checking…";
+            var r = await Updater.CheckAsync();
+            if (r == null)
+            {
+                if (manual) VersionText.Text = $"Version {Updater.Current} · you're up to date.";
+                return;
+            }
+            _update = r;
+            UpdateText.Text = $"CashVoice {r.Version} is out. You're on {Updater.Current}.";
+            UpdateNowBtn.IsEnabled = UpdateLaterBtn.IsEnabled = true;
+            UpdateBar.Visibility = Visibility.Visible;
+            VersionText.Text = $"Version {Updater.Current} · {r.Version} is available.";
+            if (!IsVisible) _tray?.ShowBalloonTip(4000, "CashVoice", $"Version {r.Version} is ready to install.",
+                                                 System.Windows.Forms.ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            if (manual) VersionText.Text = $"Version {Updater.Current} · couldn't check for updates ({ex.Message})";
+        }
+    }
+
+    async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(true);
+
+    void UpdateLater_Click(object sender, RoutedEventArgs e) => UpdateBar.Visibility = Visibility.Collapsed;
+
+    async void UpdateNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_update == null || _updating) return;
+        _updating = true;
+        UpdateNowBtn.IsEnabled = UpdateLaterBtn.IsEnabled = false;
+        try
+        {
+            var log = new Progress<string>(m => UpdateText.Text = m);
+            string dir = await Updater.DownloadAsync(_update, log);
+            UpdateText.Text = "Installing… (allow the admin prompt)";
+            bool ok = await Task.Run(() => Updater.ApplyElevated(dir));
+            if (ok)
+            {
+                _cfg.Save();
+                Updater.Relaunch();
+                ExitApp();
+                return;
+            }
+            UpdateText.Text = "Update didn't finish (the admin prompt was declined). Try again any time.";
+        }
+        catch (Exception ex) { UpdateText.Text = "Update failed: " + ex.Message; }
+        _updating = false;
+        UpdateNowBtn.IsEnabled = UpdateLaterBtn.IsEnabled = true;
     }
 
     // =====================================================================================
@@ -339,6 +424,7 @@ public partial class MainWindow : Window
         ChkSoundsIntoMic.IsChecked = _cfg.SoundsIntoMic;
         ChkMonitor.IsChecked = _cfg.MonitorLocally;
         ChkAutostart.IsChecked = _cfg.Autostart;
+        ChkAutoUpdate.IsChecked = _cfg.AutoUpdate;
         SldMic.Value = _cfg.MicGain;
         SldSound.Value = _cfg.SoundGain;
         SldLocal.Value = _cfg.LocalVolume;
@@ -402,6 +488,7 @@ public partial class MainWindow : Window
         if (_loading) return;
         _cfg.SoundsIntoMic = ChkSoundsIntoMic.IsChecked == true;
         _cfg.MonitorLocally = ChkMonitor.IsChecked == true;
+        _cfg.AutoUpdate = ChkAutoUpdate.IsChecked == true;
         bool auto = ChkAutostart.IsChecked == true;
         if (auto != _cfg.Autostart) { _cfg.Autostart = auto; SetAutostart(auto); }
         PushParams(); MarkDirty();
@@ -519,7 +606,8 @@ public partial class MainWindow : Window
 
     void Tick()
     {
-        if (!_shm.Connected && _shm.TryConnect()) PushParams();
+        // While the driver isn't running, look for it every 3 s instead of every second.
+        if (!_shm.Connected && (++_ticks % 3 == 0 || _ticks == 1) && _shm.TryConnect()) PushParams();
         else if (_shm.Connected) PushParams();     // heartbeat: keeps the APO in sync if audio service restarted
 
         string status;
@@ -577,6 +665,7 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             Hide();
+            TrimSoon();
             if (!_shownTrayTip)
             {
                 _shownTrayTip = true;

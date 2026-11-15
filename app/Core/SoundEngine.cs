@@ -27,8 +27,11 @@ public sealed class SoundEngine : IDisposable
     readonly List<WaveOutEvent> _local = new();
     readonly Thread _thread;
     volatile bool _run = true;
+    readonly AutoResetEvent _wake = new(false);
 
     static readonly ConcurrentDictionary<string, float[]> Cache = new();
+    const long CacheBudgetBytes = 32L << 20;    // keep decoded clips in RAM up to 32 MB total
+    static long _cacheBytes;
 
     public SoundEngine(SharedMem shm)
     {
@@ -42,6 +45,7 @@ public sealed class SoundEngine : IDisposable
     public void Play(float[] data, float gain)
     {
         lock (_lock) _voices.Add(new Voice { Data = data, Gain = gain });
+        _wake.Set();
     }
 
     public void StopAll()
@@ -91,7 +95,10 @@ public sealed class SoundEngine : IDisposable
         while (list.Count < max && (n = sp.Read(buf, 0, buf.Length)) > 0)
             for (int i = 0; i < n; i++) list.Add(buf[i]);
         var arr = list.ToArray();
-        if (arr.Length <= sampleRate * 30) Cache[key] = arr;
+        long bytes = (long)arr.Length * sizeof(float);
+        if (arr.Length <= sampleRate * 30 && Interlocked.Read(ref _cacheBytes) + bytes <= CacheBudgetBytes
+            && Cache.TryAdd(key, arr))
+            Interlocked.Add(ref _cacheBytes, bytes);
         return arr;
     }
 
@@ -111,18 +118,35 @@ public sealed class SoundEngine : IDisposable
         }
     }
 
+    // Streams mixed sound into the APO's ring. While nothing is playing it sleeps completely
+    // (no 1 ms timer, no wakeups), so an idle CashVoice costs ~0% CPU and doesn't hurt battery life.
     void Loop()
     {
-        timeBeginPeriod(1);
         var sw = Stopwatch.StartNew();
         var chunk = new float[1024];
         long written = 0, baseWritten = 0, lead = 0;
-        double t0 = 0;
+        double t0 = 0, lastActive = 0;
         uint sr = 0;
+        bool fastTimer = false, resume = false;
+
+        void SlowTimer() { if (fastTimer) { timeEndPeriod(1); fastTimer = false; } }
 
         while (_run)
         {
-            if (!_shm.Connected) { sr = 0; Thread.Sleep(50); continue; }
+            if (!_shm.Connected) { sr = 0; SlowTimer(); _wake.WaitOne(1000); continue; }
+
+            bool active; lock (_lock) active = _voices.Count > 0;
+            double now = sw.Elapsed.TotalSeconds;
+            if (active) lastActive = now;
+            else if (now - lastActive > 1.0)
+            {
+                // ≥1 s of silence already written, so the APO only ever re-reads zeros while we sleep.
+                SlowTimer();
+                _wake.WaitOne();
+                resume = true;
+                continue;
+            }
+            if (!fastTimer) { timeBeginPeriod(1); fastTimer = true; }
 
             uint apoSr = _shm.ApoSampleRate; if (apoSr == 0) apoSr = 48000;
             if (sr != apoSr)
@@ -136,8 +160,9 @@ public sealed class SoundEngine : IDisposable
             }
 
             long target = baseWritten + lead + (long)((sw.Elapsed.TotalSeconds - t0) * sr);
-            if (target - written > sr)               // stalled (sleep/hibernate): skip ahead cleanly
+            if (resume || target - written > sr)     // woke from idle, or stalled (sleep/hibernate): skip ahead cleanly
             {
+                resume = false;
                 _shm.ClearRing();
                 written = target - lead;
                 _shm.WritePos = written;
@@ -152,12 +177,13 @@ public sealed class SoundEngine : IDisposable
             }
             Thread.Sleep(4);
         }
-        timeEndPeriod(1);
+        SlowTimer();
     }
 
     public void Dispose()
     {
         _run = false;
+        _wake.Set();
         try { _thread.Join(500); } catch { }
         StopAll();
     }

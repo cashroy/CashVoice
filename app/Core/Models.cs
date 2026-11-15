@@ -72,6 +72,7 @@ public sealed class AppConfig
     public double SoundGain { get; set; } = 1.0;
     public double LocalVolume { get; set; } = 0.8;
     public bool Autostart { get; set; }
+    public bool AutoUpdate { get; set; } = true;
     public ObservableCollection<VoicePreset> Voices { get; set; } = new(DefaultVoices());
     public ObservableCollection<SoundItem> Sounds { get; set; } = new();
     public Dictionary<string, string> GlobalHotkeys { get; set; } = DefaultHotkeys();

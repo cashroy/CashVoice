@@ -23,6 +23,18 @@
       </DockPanel>
     </Border>
 
+    <!-- ============ update banner (hidden until a newer release exists) ============ -->
+    <Border x:Name="UpdateBar" DockPanel.Dock="Top" Background="{StaticResource Ink}" Padding="32,12" Visibility="Collapsed">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="UpdateLaterBtn" Content="Later" Height="34" Margin="0,0,8,0"
+                  Background="Transparent" Foreground="White" BorderBrush="#66FFFFFF" Click="UpdateLater_Click"/>
+          <Button x:Name="UpdateNowBtn" Content="Update and restart" Style="{StaticResource Primary}" Height="34" Click="UpdateNow_Click"/>
+        </StackPanel>
+        <TextBlock x:Name="UpdateText" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      </DockPanel>
+    </Border>
+
     <TabControl x:Name="Tabs">
 
       <!-- ============ VOICE ============ -->
@@ -175,7 +187,12 @@
             <Border Height="1" Background="{StaticResource Line}" Margin="0,30"/>
             <TextBlock Text="GENERAL" Style="{StaticResource Eyebrow}"/>
             <CheckBox x:Name="ChkAutostart" Content="Start with Windows (minimised to tray)" Click="Settings_Changed"/>
-            <Button Content="Update yt-dlp" Style="{StaticResource Quiet}" Margin="0,14,0,0" HorizontalAlignment="Left" Click="UpdateYtDlp_Click"/>
+            <CheckBox x:Name="ChkAutoUpdate" Content="Check for updates automatically" Click="Settings_Changed"/>
+            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+              <Button x:Name="CheckUpdatesBtn" Content="Check for updates" Style="{StaticResource Quiet}" Click="CheckUpdates_Click"/>
+              <Button Content="Update yt-dlp" Style="{StaticResource Quiet}" Margin="8,0,0,0" Click="UpdateYtDlp_Click"/>
+            </StackPanel>
+            <TextBlock x:Name="VersionText" Style="{StaticResource Muted}" Margin="2,10,0,0"/>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
