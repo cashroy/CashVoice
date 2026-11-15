@@ -464,10 +464,16 @@ struct MenuContent: View {
 
 // MARK: - Type
 
-/// Futura (ships with macOS) like the website's headings; heavier weights use Futura Bold.
+/// LT Superior, bundled in Contents/Resources/Fonts (same typeface as the website and Windows app).
 func cvFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+    let name: String
     switch weight {
-    case .black, .heavy, .bold: return .custom("Futura-Bold", size: size)
-    default: return .custom("Futura-Medium", size: size)
+    case .black: name = "LTSuperior-Black"
+    case .heavy: name = "LTSuperior-ExtraBold"
+    case .bold: name = "LTSuperior-Bold"
+    case .semibold: name = "LTSuperior-SemiBold"
+    case .medium: name = "LTSuperior-Medium"
+    default: name = "LTSuperior-Regular"
     }
+    return .custom(name, size: size)
 }

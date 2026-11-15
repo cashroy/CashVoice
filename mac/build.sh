@@ -53,6 +53,9 @@ for s in 16 32 128 256 512; do
   sips -z $((s*2)) $((s*2)) "$SRC/App/AppIcon.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+# LT Superior (SIL OFL), the same files the Windows app bundles; registered via ATSApplicationFontsPath.
+mkdir -p "$APP/Contents/Resources/Fonts"
+cp "$ROOT"/app/Fonts/LTSuperior-*.ttf "$ROOT"/app/Fonts/LTSuperior-OFL.txt "$APP/Contents/Resources/Fonts/"
 codesign --force --sign - "$APP"
 
 echo "== Package"

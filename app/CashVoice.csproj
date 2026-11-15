@@ -18,9 +18,9 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Jost (SIL Open Font License, see Fonts/Jost-LICENSE.txt): free Futura-style fallback, as on cashroy.github.io -->
+    <!-- LT Superior by LyonsType (SIL Open Font License, see Fonts/LTSuperior-OFL.txt), as on cashroy.github.io -->
     <Resource Include="Fonts\*.ttf" />
-    <None Include="Fonts\Jost-LICENSE.txt" CopyToOutputDirectory="Never" />
+    <None Include="Fonts\LTSuperior-OFL.txt" CopyToOutputDirectory="Never" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />

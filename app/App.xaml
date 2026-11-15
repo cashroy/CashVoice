@@ -12,10 +12,9 @@
     <SolidColorBrush x:Key="Soft" Color="#A30B0B0B"/>
     <SolidColorBrush x:Key="Line" Color="#1F0B0B0B"/>
     <SolidColorBrush x:Key="Tint" Color="#FFF4F3"/>
-    <!-- Futura when it's installed on this PC (Futura Heavy for headings, Futura Book for text);
-         otherwise Jost, a free Futura-style font bundled with the app; then Segoe UI. -->
-    <FontFamily x:Key="Display">Futura-Heavy, pack://application:,,,/Fonts/#Jost*, Segoe UI</FontFamily>
-    <FontFamily x:Key="Body">Futura Bk, Futura Book, pack://application:,,,/Fonts/#Jost*, Segoe UI</FontFamily>
+    <!-- LT Superior, bundled (same as the website). Falls back to Segoe UI if it ever fails to load. -->
+    <FontFamily x:Key="Display">pack://application:,,,/Fonts/#LT Superior, Segoe UI</FontFamily>
+    <FontFamily x:Key="Body">pack://application:,,,/Fonts/#LT Superior, Segoe UI</FontFamily>
 
     <!-- ===== text ===== -->
     <Style x:Key="Eyebrow" TargetType="TextBlock">
