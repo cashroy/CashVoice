@@ -18,11 +18,17 @@ public struct SharedHeader
     public long WritePos;
 }
 
-/// <summary>Connects to the shared-memory block that the APO creates inside the Windows audio engine.</summary>
+/// <summary>
+/// Connects to the shared block the APO keeps in C:\ProgramData\CashVoice\shared.bin. (A named
+/// "Global\" section can't be used: the audio engine isn't allowed to create one.)
+/// </summary>
 public sealed unsafe class SharedMem : IDisposable
 {
     public const int RingFrames = 1 << 16;
-    const string MapName = @"Global\CashVoiceShared";
+    public static readonly string Folder =
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CashVoice");
+    public static string SharedFile => System.IO.Path.Combine(Folder, "shared.bin");
+    public static string ApoLog => System.IO.Path.Combine(Folder, "apo.log");
     const uint Magic = 0x47524656;
     static readonly int HeaderSize = sizeof(SharedHeader);
 
@@ -35,21 +41,19 @@ public sealed unsafe class SharedMem : IDisposable
     SharedHeader* H => (SharedHeader*)_base;
     float* Ring => (float*)(_base + HeaderSize);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr OpenFileMappingW(uint access, bool inherit, string name);
-    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-
     public bool TryConnect()
     {
         if (_connected) return true;
-        // Cheap existence check first: avoids throwing an exception every poll while the APO isn't loaded.
-        IntPtr probe = OpenFileMappingW(0x0004 /*FILE_MAP_READ*/, false, MapName);
-        if (probe == IntPtr.Zero) return false;
-        CloseHandle(probe);
+        long size = HeaderSize + (long)RingFrames * sizeof(float);
+        // Cheap check first so polling doesn't throw while the APO hasn't created the file yet.
+        var fi = new System.IO.FileInfo(SharedFile);
+        if (!fi.Exists || fi.Length < size) return false;
         try
         {
-            long size = HeaderSize + (long)RingFrames * sizeof(float);
-            _mmf = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.ReadWrite);
+            var fs = new System.IO.FileStream(SharedFile, System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite,
+                                              System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+            _mmf = MemoryMappedFile.CreateFromFile(fs, null, size, MemoryMappedFileAccess.ReadWrite,
+                                                   System.IO.HandleInheritability.None, leaveOpen: false);
             _view = _mmf.CreateViewAccessor(0, size, MemoryMappedFileAccess.ReadWrite);
             byte* p = null;
             _view.SafeMemoryMappedViewHandle.AcquirePointer(ref p);
@@ -72,6 +76,8 @@ public sealed unsafe class SharedMem : IDisposable
 
     public uint ApoSampleRate => _connected ? Volatile.Read(ref H->ApoSampleRate) : 0u;
     public uint ApoInstances => _connected ? Volatile.Read(ref H->ApoInstances) : 0u;
+    /// <summary>Incremented by the APO on every audio buffer; if it moves, the effect is live.</summary>
+    public uint Heartbeat => _connected ? Volatile.Read(ref H->Reserved0) : 0u;
 
     public uint LeadFrames
     {

@@ -34,6 +34,10 @@ Source: "..\publish\arm64\CashVoice.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\apo\build\arm64\Release\CashVoiceAPO.dll"; DestDir: "{app}"; Flags: ignoreversion; Check: IsArm64
 Source: "CashVoice.cer"; DestDir: "{app}"; Flags: ignoreversion
 
+[Dirs]
+; Shared buffer between the app and the APO (audiodg.exe can't create a Global\ section).
+Name: "{commonappdata}\CashVoice"
+
 [Icons]
 Name: "{group}\CashVoice"; Filename: "{app}\CashVoice.exe"
 Name: "{autodesktop}\CashVoice"; Filename: "{app}\CashVoice.exe"; Tasks: desktopicon
@@ -42,9 +46,11 @@ Name: "{autodesktop}\CashVoice"; Filename: "{app}\CashVoice.exe"; Tasks: desktop
 ; Trust our (self-signed) certificate so Windows will load the signed APO.
 Filename: "{sys}\certutil.exe"; Parameters: "-addstore -f Root ""{app}\CashVoice.cer"""; Flags: runhidden
 Filename: "{sys}\certutil.exe"; Parameters: "-addstore -f TrustedPublisher ""{app}\CashVoice.cer"""; Flags: runhidden
+; Shared folder: modify rights for Everyone, LOCAL SERVICE (audiodg), write-restricted tokens and app packages.
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\CashVoice"" /grant *S-1-1-0:(OI)(CI)M *S-1-5-19:(OI)(CI)M *S-1-5-33:(OI)(CI)M *S-1-15-2-1:(OI)(CI)M"; Flags: runhidden
 ; Register the APO COM server + audio-engine registration.
 Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{app}\CashVoiceAPO.dll"""; Flags: runhidden
-Filename: "{app}\CashVoice.exe"; Description: "Launch CashVoice"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\CashVoice.exe"; Description: "Launch CashVoice"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [InstallDelete]
 ; leftovers from in-app updates
@@ -52,6 +58,7 @@ Type: files; Name: "{app}\*.old"
 
 [UninstallDelete]
 Type: files; Name: "{app}\*.old"
+Type: filesandordirs; Name: "{commonappdata}\CashVoice"
 
 [UninstallRun]
 ; Put each microphone's original driver effect back, restart audio, then unregister.

@@ -154,6 +154,16 @@
               <Button Content="Apply" Style="{StaticResource Primary}" Padding="26,0" Click="ApplyMics_Click"/>
               <Button Content="Refresh list" Style="{StaticResource Quiet}" Margin="10,0,0,0" Click="RefreshMics_Click"/>
             </StackPanel>
+            <Border Background="{StaticResource Tint}" CornerRadius="12" Padding="16,12" Margin="0,16,0,0">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Sound settings" Style="{StaticResource Quiet}" Margin="12,0,0,0"
+                        VerticalAlignment="Center" Click="OpenSoundSettings_Click"/>
+                <TextBlock TextWrapping="Wrap" VerticalAlignment="Center">
+                  <Run FontWeight="Bold" Text="Not working?"/>
+                  <Run Text="If your mic's Audio enhancements is set to Windows Studio Effects, Windows skips CashVoice. Open Sound settings, click your mic and pick Device Default Effects."/>
+                </TextBlock>
+              </DockPanel>
+            </Border>
 
             <Border Height="1" Background="{StaticResource Line}" Margin="0,30"/>
             <TextBlock Text="AUDIO" Style="{StaticResource Eyebrow}"/>

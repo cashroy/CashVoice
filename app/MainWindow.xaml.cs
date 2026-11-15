@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     Updater.Release? _update;
     bool _updating;
     int _ticks;
+    bool? _hooked;
+    uint _lastBeat;
     readonly List<Action> _syncers = new();
     readonly Dictionary<string, HotkeyBox> _globalBoxes = new();
 
@@ -471,12 +473,19 @@ public partial class MainWindow : Window
 
     void RefreshMics_Click(object sender, RoutedEventArgs e) => RefreshMics();
 
+    void OpenSoundSettings_Click(object sender, RoutedEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:sound") { UseShellExecute = true }); }
+        catch { }
+    }
+
     void ApplyMics_Click(object sender, RoutedEventArgs e)
     {
         var chosen = MicList.Children.OfType<CheckBox>()
             .Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToList();
         bool ok = ApoInstaller.ApplyElevated(chosen);
         RefreshMics();
+        _hooked = null;
         MessageBox.Show(ok
             ? "Done. Windows audio was restarted. Restart apps that were already using the mic (Discord, OBS, games…) so they pick up the effect."
             : "That didn't complete (admin permission was declined, or Windows blocked the change).",
@@ -610,13 +619,18 @@ public partial class MainWindow : Window
         if (!_shm.Connected && (++_ticks % 3 == 0 || _ticks == 1) && _shm.TryConnect()) PushParams();
         else if (_shm.Connected) PushParams();     // heartbeat: keeps the APO in sync if audio service restarted
 
+        if (_ticks % 5 == 1 || _hooked == null) _hooked = ApoInstaller.EnabledEndpoints().Count > 0;
+        uint beat = _shm.Heartbeat;
+        bool live = _shm.Connected && beat != _lastBeat;
+        _lastBeat = beat;
+
         string status;
-        if (!_shm.Connected)
-            status = "Not on your mic yet. Go to Settings, tick your mic and press Apply.";
-        else if (_shm.ApoInstances == 0)
-            status = "Ready. Waiting for an app to start using the mic.";
+        if (live)
+            status = $"Live on your mic · {_shm.ApoSampleRate / 1000.0:0.#} kHz";
+        else if (_hooked == true)
+            status = "On your mic. It switches on whenever an app is using the mic.";
         else
-            status = $"Live on your mic · {_shm.ApoInstances} app(s) · {_shm.ApoSampleRate / 1000.0:0.#} kHz";
+            status = "Not on your mic yet. Go to Settings, tick your mic and press Apply.";
         if (_cfg.MicMuted) status += "  ·  MIC MUTED";
         StatusText.Text = status;
 

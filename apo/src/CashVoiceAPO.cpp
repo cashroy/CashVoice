@@ -13,6 +13,8 @@
 #include <sddl.h>
 #include <strsafe.h>
 #include <new>
+#include <cstdarg>
+#include <cstdio>
 #include <vector>
 #include "dsp.h"
 
@@ -52,23 +54,57 @@ static const SIZE_T kMapSize = sizeof(SharedHeader) + kRingFrames * sizeof(float
 
 static SharedHeader* g_shared = nullptr;
 static HANDLE        g_map    = nullptr;
-static INIT_ONCE     g_once   = INIT_ONCE_STATIC_INIT;
+static SRWLOCK       g_lock   = SRWLOCK_INIT;
+static ULONGLONG     g_lastTry = 0;
 
-static BOOL CALLBACK InitSharedOnce(PINIT_ONCE, PVOID, PVOID*) {
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), nullptr, FALSE };
-    PSECURITY_DESCRIPTOR sd = nullptr;
-    // Everyone + all app packages: read/write. Low integrity label so any user process can open it.
-    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:(A;;GA;;;WD)(A;;GA;;;AC)(A;;GA;;;S-1-15-2-2)S:(ML;;NW;;;LW)",
-            SDDL_REVISION_1, &sd, nullptr)) {
-        sa.lpSecurityDescriptor = sd;
+// The app and the APO share one small file in C:\ProgramData\CashVoice (set up by the installer
+// with permissions for the audio engine). A named "Global\" section doesn't work: audiodg.exe runs
+// with a stripped-down token and isn't allowed to create one. FILE_ATTRIBUTE_TEMPORARY keeps the
+// pages in RAM rather than writing them to disk.
+static const wchar_t* kFile = L"C:\\ProgramData\\CashVoice\\shared.bin";
+
+// One line per event in C:\ProgramData\CashVoice\apo.log (never called on the real-time thread).
+static void Log(const wchar_t* fmt, ...) {
+    wchar_t msg[400];
+    va_list ap; va_start(ap, fmt);
+    StringCchVPrintfW(msg, 400, fmt, ap);
+    va_end(ap);
+    SYSTEMTIME t; GetLocalTime(&t);
+    char line[600];
+    int n = _snprintf_s(line, sizeof(line), _TRUNCATE, "%04u-%02u-%02u %02u:%02u:%02u pid=%lu %ls\r\n",
+                        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, GetCurrentProcessId(), msg);
+    HANDLE f = CreateFileW(L"C:\\ProgramData\\CashVoice\\apo.log", FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(f, &size) && size.QuadPart > 256 * 1024) {   // keep it small
+        CloseHandle(f);
+        f = CreateFileW(L"C:\\ProgramData\\CashVoice\\apo.log", GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f == INVALID_HANDLE_VALUE) return;
     }
-    g_map = CreateFileMappingW(INVALID_HANDLE_VALUE, sd ? &sa : nullptr, PAGE_READWRITE,
-                               0, (DWORD)kMapSize, L"Global\\CashVoiceShared");
-    if (sd) LocalFree(sd);
-    if (!g_map) return TRUE;
-    void* view = MapViewOfFile(g_map, FILE_MAP_ALL_ACCESS, 0, 0, kMapSize);
-    if (!view) return TRUE;
+    DWORD w = 0;
+    if (n > 0) WriteFile(f, line, (DWORD)n, &w, nullptr);
+    CloseHandle(f);
+}
+
+static SharedHeader* MapShared() {
+    HANDLE file = CreateFileW(kFile, GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        Log(L"can't open %s (error %lu)", kFile, GetLastError());
+        return nullptr;
+    }
+    HANDLE map = CreateFileMappingW(file, nullptr, PAGE_READWRITE, 0, (DWORD)kMapSize, nullptr);
+    DWORD err = GetLastError();
+    CloseHandle(file);                       // the mapping keeps the file open
+    if (!map) { Log(L"CreateFileMapping failed (error %lu)", err); return nullptr; }
+    void* view = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, kMapSize);
+    if (!view) { Log(L"MapViewOfFile failed (error %lu)", GetLastError()); CloseHandle(map); return nullptr; }
+    g_map = map;
     SharedHeader* h = (SharedHeader*)view;
     if (h->magic != kMagic) {                       // fresh mapping: write defaults
         h->version = 1;
@@ -78,11 +114,22 @@ static BOOL CALLBACK InitSharedOnce(PINIT_ONCE, PVOID, PVOID*) {
         MemoryBarrier();
         h->magic = kMagic;
     }
-    g_shared = h;
-    return TRUE;
+    h->apoInstances = 0;     // first mapping in this audiodg: any older count belonged to a dead process
+    Log(L"shared memory ready");
+    return h;
 }
+
+// Non-real-time threads only. Retries (at most every 2 s) if the folder wasn't there yet.
 static SharedHeader* GetShared() {
-    InitOnceExecuteOnce(&g_once, InitSharedOnce, nullptr, nullptr);
+    if (g_shared) return g_shared;
+    AcquireSRWLockExclusive(&g_lock);
+    ULONGLONG now = GetTickCount64();
+    if (!g_shared && (g_lastTry == 0 || now - g_lastTry > 2000)) {
+        g_lastTry = now;
+        SharedHeader* h = MapShared();
+        if (h) { MemoryBarrier(); g_shared = h; }
+    }
+    ReleaseSRWLockExclusive(&g_lock);
     return g_shared;
 }
 
@@ -170,6 +217,7 @@ public:
         return S_OK;
     }
     STDMETHOD(Initialize)(UINT32, BYTE*) override {
+        Log(L"Initialize");
         GetShared();                 // create the shared mapping early (non-realtime thread)
         return S_OK;
     }
@@ -204,7 +252,10 @@ public:
                               UINT32 nOut, APO_CONNECTION_DESCRIPTOR** ppOut) override {
         if (nIn != 1 || nOut != 1 || !ppIn || !ppOut) return E_INVALIDARG;
         UINT32 ch = 0, sr = 0;
-        if (!IsFloat32(ppIn[0]->pFormat, &ch, &sr) || ch == 0) return APOERR_FORMAT_NOT_SUPPORTED;
+        if (!IsFloat32(ppIn[0]->pFormat, &ch, &sr) || ch == 0) {
+            Log(L"LockForProcess: unsupported format");
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
         try {
             UINT32 maxFrames = ppIn[0]->u32MaxFrameCount;
             if (maxFrames < 1024) maxFrames = 1024;
@@ -221,6 +272,8 @@ public:
             m_readPos = wp - (int64_t)(s->leadFrames ? s->leadFrames : 2880);
         }
         m_locked = true;
+        Log(L"LockForProcess: %u ch, %u Hz, max %u frames, shared=%s",
+            ch, sr, ppIn[0]->u32MaxFrameCount, s ? L"yes" : L"no");
         return S_OK;
     }
     STDMETHOD(UnlockForProcess)() override {
@@ -254,6 +307,7 @@ public:
             p.echoMs = s->echoMs; p.echoFb = s->echoFb; p.echoMix = s->echoMix;
             p.hpHz = s->hpHz; p.lpHz = s->lpHz; p.drive = s->drive;
             p.micGain = s->micGain; p.soundGain = s->soundGain;
+            s->reserved0++;                                  // heartbeat: the app shows "live" while this moves
             ring = (const float*)(s + 1);
             wp   = InterlockedCompareExchange64((volatile LONG64*)&s->writePos, 0, 0);
             if (s->leadFrames) lead = s->leadFrames;
@@ -306,6 +360,7 @@ public:
     }
     STDMETHOD(CreateInstance)(IUnknown* outer, REFIID riid, void** ppv) override {
         if (outer) return CLASS_E_NOAGGREGATION;
+        Log(L"CreateInstance");
         CashVoiceAPO* apo = new (std::nothrow) CashVoiceAPO();
         if (!apo) return E_OUTOFMEMORY;
         HRESULT hr = apo->QueryInterface(riid, ppv);
