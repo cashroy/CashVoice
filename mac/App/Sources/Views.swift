@@ -53,8 +53,11 @@ struct Header: View {
     var body: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                (Text("CashVoice").foregroundColor(.white) + Text(".").foregroundColor(.cvInk))
-                    .font(cvFont(36, .black)).kerning(-1.2)
+                HStack(alignment: .lastTextBaseline, spacing: 2.5) {   // round full stop, like the website
+                    Text("CashVoice").foregroundColor(.white).font(cvFont(36, .black)).kerning(-1.2)
+                    Circle().fill(Color.cvInk).frame(width: 7.2, height: 7.2)
+                        .alignmentGuide(.lastTextBaseline) { d in d[.bottom] }
+                }
                 Text(store.statusText).font(cvFont(13, .medium)).foregroundColor(.white.opacity(0.9))
                     .lineLimit(2)
             }

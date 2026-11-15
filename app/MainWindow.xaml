@@ -16,7 +16,8 @@
                       Style="{StaticResource HeaderToggle}" Content="Voice off" Click="VoiceToggle_Click"/>
         <StackPanel VerticalAlignment="Center" Margin="0,0,24,0">
           <TextBlock FontFamily="{StaticResource Display}" FontSize="38" FontWeight="Black" Foreground="White">
-            <Run Text="CashVoice"/><Run Text="." Foreground="{StaticResource Ink}"/>
+            <Run Text="CashVoice"/><InlineUIContainer BaselineAlignment="Baseline"><!-- round full stop, like the website -->
+              <Ellipse Width="7.6" Height="7.6" Margin="2.5,0,0,0" Fill="{StaticResource Ink}"/></InlineUIContainer>
           </TextBlock>
           <TextBlock x:Name="StatusText" Foreground="#E6FFFFFF" Margin="2,2,0,0" TextWrapping="Wrap"/>
         </StackPanel>
