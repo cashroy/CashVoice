@@ -27,7 +27,7 @@ public static class AppPaths
 public abstract class Notifier : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
-    public void Touch() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Display"));
+    public void Touch() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
 }
 
 public sealed class VoicePreset : Notifier

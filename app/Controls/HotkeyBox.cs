@@ -15,9 +15,8 @@ public sealed class HotkeyBox : TextBox
         IsReadOnly = true;
         IsReadOnlyCaretVisible = false;
         MinWidth = 150;
-        Height = 26;
         VerticalContentAlignment = System.Windows.VerticalAlignment.Center;
-        ToolTip = "Click, then press a key combination. Backspace clears.";
+        ToolTip = "Click, then press a key combo. Backspace clears it.";
     }
 
     public string Value

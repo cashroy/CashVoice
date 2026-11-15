@@ -41,6 +41,26 @@ public partial class MainWindow : Window
         ("stop",   "Stop all sounds"),
     };
 
+    // Red Windows 11 title bar to match the header (ignored on Windows 10).
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        int red = 0x0006E1, white = 0xFFFFFF;          // COLORREF is 0x00BBGGRR
+        DwmSetWindowAttribute(hwnd, 35, ref red, 4);   // DWMWA_CAPTION_COLOR
+        DwmSetWindowAttribute(hwnd, 34, ref red, 4);   // DWMWA_BORDER_COLOR
+        DwmSetWindowAttribute(hwnd, 36, ref white, 4); // DWMWA_TEXT_COLOR
+    }
+
+    static System.Drawing.Icon AppIcon()
+    {
+        try { return System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application; }
+        catch { return System.Drawing.SystemIcons.Application; }
+    }
+
     public MainWindow()
     {
         _loading = true;                 // XAML init fires ValueChanged/Click handlers before fields exist
@@ -74,8 +94,8 @@ public partial class MainWindow : Window
     {
         VoiceEditor.Children.Clear();
 
-        VoiceEditor.Children.Add(new TextBlock { Text = "Name", FontWeight = FontWeights.SemiBold });
-        _voiceName = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+        VoiceEditor.Children.Add(new TextBlock { Text = "NAME", Style = (Style)FindResource("Eyebrow") });
+        _voiceName = new TextBox { Margin = new Thickness(0, 0, 0, 22) };
         _voiceName.LostFocus += (_, _) =>
         {
             if (_editing == null || _loading) return;
@@ -83,8 +103,8 @@ public partial class MainWindow : Window
         };
         VoiceEditor.Children.Add(_voiceName);
 
-        VoiceEditor.Children.Add(new TextBlock { Text = "Hotkey (selects this voice and turns the changer on)", FontWeight = FontWeights.SemiBold });
-        _voiceHotkey = new HotkeyBox { Margin = new Thickness(0, 2, 0, 14), HorizontalAlignment = HorizontalAlignment.Left };
+        VoiceEditor.Children.Add(new TextBlock { Text = "HOTKEY  ·  PICKS THIS VOICE AND TURNS IT ON", Style = (Style)FindResource("Eyebrow") });
+        _voiceHotkey = new HotkeyBox { Margin = new Thickness(0, 0, 0, 26), Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
         _voiceHotkey.ValueChanged += (_, _) =>
         {
             if (_editing == null || _loading) return;
@@ -92,6 +112,7 @@ public partial class MainWindow : Window
         };
         VoiceEditor.Children.Add(_voiceHotkey);
 
+        VoiceEditor.Children.Add(new TextBlock { Text = "SOUND", Style = (Style)FindResource("Eyebrow") });
         AddSlider("Pitch (semitones)", -24, 24, 0.5, v => v.Pitch, (v, x) => v.Pitch = x);
         AddSlider("Robot / ring-mod mix", 0, 1, 0.05, v => v.RingMix, (v, x) => v.RingMix = x);
         AddSlider("Ring-mod frequency (Hz)", 5, 400, 1, v => v.RingHz, (v, x) => v.RingHz = x);
@@ -106,8 +127,8 @@ public partial class MainWindow : Window
     void AddSlider(string label, double min, double max, double step,
                    Func<VoicePreset, double> get, Action<VoicePreset, double> set)
     {
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
 
@@ -117,7 +138,7 @@ public partial class MainWindow : Window
             Minimum = min, Maximum = max, SmallChange = step, LargeChange = step * 5,
             TickFrequency = step, IsSnapToTickEnabled = true, VerticalAlignment = VerticalAlignment.Center,
         };
-        var val = new TextBlock { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var val = new TextBlock { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.Bold };
         Grid.SetColumn(sl, 1); Grid.SetColumn(val, 2);
         grid.Children.Add(lbl); grid.Children.Add(sl); grid.Children.Add(val);
 
@@ -329,7 +350,7 @@ public partial class MainWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var tb = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-            var box = new HotkeyBox { Value = _cfg.GlobalHotkeys.TryGetValue(key, out var hk) ? hk : "" };
+            var box = new HotkeyBox { Width = 220, Margin = new Thickness(0, 3, 0, 3), Value = _cfg.GlobalHotkeys.TryGetValue(key, out var hk) ? hk : "" };
             string k = key;
             box.ValueChanged += (_, _) => { _cfg.GlobalHotkeys[k] = box.Value; RebuildHotkeys(); MarkDirty(); };
             Grid.SetColumn(box, 1);
@@ -478,7 +499,7 @@ public partial class MainWindow : Window
     void RefreshToggle()
     {
         VoiceToggle.IsChecked = _cfg.VoiceEnabled;
-        VoiceToggle.Content = _cfg.VoiceEnabled ? "Voice: ON" : "Voice: OFF";
+        VoiceToggle.Content = _cfg.VoiceEnabled ? "Voice on" : "Voice off";
         if (_trayToggle != null) _trayToggle.Checked = _cfg.VoiceEnabled;
         if (_tray != null)
             _tray.Text = "CashVoice — " + (_cfg.VoiceEnabled ? "voice ON" : "voice off") + (_cfg.MicMuted ? " (muted)" : "");
@@ -503,11 +524,11 @@ public partial class MainWindow : Window
 
         string status;
         if (!_shm.Connected)
-            status = "Driver not running yet. Go to Settings → tick your microphone → Apply, then restart apps that use the mic.";
+            status = "Not on your mic yet. Go to Settings, tick your mic and press Apply.";
         else if (_shm.ApoInstances == 0)
-            status = "Driver loaded — waiting for an app to start using the microphone.";
+            status = "Ready. Waiting for an app to start using the mic.";
         else
-            status = $"Mic effect active in {_shm.ApoInstances} stream(s) at {_shm.ApoSampleRate} Hz.";
+            status = $"Live on your mic · {_shm.ApoInstances} app(s) · {_shm.ApoSampleRate / 1000.0:0.#} kHz";
         if (_cfg.MicMuted) status += "  ·  MIC MUTED";
         StatusText.Text = status;
 
@@ -535,7 +556,7 @@ public partial class MainWindow : Window
 
         _tray = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = AppIcon(),
             Visible = true,
             Text = "CashVoice",
             ContextMenuStrip = menu,

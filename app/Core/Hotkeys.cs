@@ -20,7 +20,8 @@ public readonly record struct Hotkey(uint Mods, uint Vk)
         if ((Mods & Alt) != 0) parts.Add("Alt");
         if ((Mods & Shift) != 0) parts.Add("Shift");
         if ((Mods & Win) != 0) parts.Add("Win");
-        parts.Add(KeyInterop.KeyFromVirtualKey((int)Vk).ToString());
+        var key = KeyInterop.KeyFromVirtualKey((int)Vk);
+        parts.Add(key >= Key.D0 && key <= Key.D9 ? ((int)(key - Key.D0)).ToString() : key.ToString());
         return string.Join("+", parts);
     }
 
@@ -38,7 +39,9 @@ public readonly record struct Hotkey(uint Mods, uint Vk)
                 case "shift": mods |= Shift; break;
                 case "win": case "windows": mods |= Win; break;
                 default:
-                    if (Enum.TryParse<Key>(p, true, out var k))
+                    if (p.Length == 1 && char.IsDigit(p[0]))
+                        vk = (uint)KeyInterop.VirtualKeyFromKey(Key.D0 + (p[0] - '0'));
+                    else if (Enum.TryParse<Key>(p, true, out var k))
                         vk = (uint)KeyInterop.VirtualKeyFromKey(k);
                     break;
             }
