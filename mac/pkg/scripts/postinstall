@@ -1,0 +1,11 @@
+#!/bin/bash
+# Runs as root after CashVoice-mac.pkg installs.
+# Restart Core Audio so it loads the CashVoice Mic driver (sound cuts out for a second).
+launchctl kickstart -k system/com.apple.audio.coreaudiod 2>/dev/null || killall coreaudiod 2>/dev/null || true
+
+# Open CashVoice for the person who installed it.
+user=$(stat -f%Su /dev/console)
+if [ -n "$user" ] && [ "$user" != "root" ]; then
+  sudo -u "$user" open -a /Applications/CashVoice.app || true
+fi
+exit 0
