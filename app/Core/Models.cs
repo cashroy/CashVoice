@@ -94,7 +94,6 @@ public sealed class AppConfig
         new() { Id = "squeaky",  Name = "Squeaky",    Pitch = 11 },
         new() { Id = "robot",    Name = "Robot",      RingHz = 55, RingMix = 0.85 },
         new() { Id = "alien",    Name = "Alien",      Pitch = 3, RingHz = 18, RingMix = 0.6 },
-        new() { Id = "demon",    Name = "Demon",      Pitch = -7, Drive = 0.35, EchoMs = 70, EchoFb = 0.3, EchoMix = 0.35 },
         new() { Id = "radio",    Name = "Radio / Megaphone", HpHz = 400, LpHz = 3200, Drive = 0.25 },
         new() { Id = "cave",     Name = "Cave Echo",  EchoMs = 280, EchoFb = 0.45, EchoMix = 0.5 },
     };
@@ -115,6 +114,8 @@ public sealed class AppConfig
 
     void Normalize()
     {
+        // "demon" was a built-in voice in early builds; it's been retired.
+        foreach (var v in Voices.Where(v => v.Id == "demon").ToList()) Voices.Remove(v);
         if (Voices.Count == 0) Voices = new(DefaultVoices());
         foreach (var kv in DefaultHotkeys())
             if (!GlobalHotkeys.ContainsKey(kv.Key)) GlobalHotkeys[kv.Key] = kv.Value;

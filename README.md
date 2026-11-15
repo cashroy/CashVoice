@@ -2,7 +2,7 @@
 
 A Clownfish-style system-wide voice changer + soundboard for Windows 10/11 (x64).
 
-* **Voice changer** — pitch, robot, echo, filters, distortion; 10 built-in voices + your own.
+* **Voice changer** — pitch, robot, echo, filters, distortion; 9 built-in voices + your own.
 * **System integration with no virtual mic** — a real Audio Processing Object (APO) hooks your actual microphone, the same way Clownfish / Equalizer APO do. Discord, OBS, games etc. just use the mic normally.
 * **Soundboard** — import files, drag & drop, or paste a YouTube link (downloaded with yt-dlp into `%APPDATA%\CashVoice\Sounds`). Sounds play *into the mic* (and optionally on your speakers).
 * **Custom pitch slider (±24 semitones) on every voice.
