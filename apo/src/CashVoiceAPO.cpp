@@ -151,6 +151,26 @@ static SharedHeader* GetShared() {
     return g_shared;
 }
 
+// Remember which unknown interfaces we've already logged (the audio engine asks for dozens, repeatedly).
+static GUID    g_missed[64];
+static LONG    g_nMissed = 0;
+static SRWLOCK g_missLock = SRWLOCK_INIT;
+static bool FirstMiss(REFIID riid) {
+    AcquireSRWLockExclusive(&g_missLock);
+    bool first = true;
+    for (LONG k = 0; k < g_nMissed; ++k) if (IsEqualGUID(g_missed[k], riid)) { first = false; break; }
+    if (first && g_nMissed < 64) g_missed[g_nMissed++] = riid;
+    ReleaseSRWLockExclusive(&g_missLock);
+    return first;
+}
+
+static void FormatStr(IAudioMediaType* t, wchar_t* out, size_t n) {
+    const WAVEFORMATEX* wf = t ? t->GetAudioFormat() : nullptr;
+    if (!wf) { StringCchCopyW(out, n, L"(none)"); return; }
+    StringCchPrintfW(out, n, L"tag=0x%X bits=%u ch=%u rate=%lu", wf->wFormatTag, wf->wBitsPerSample,
+                     wf->nChannels, wf->nSamplesPerSec);
+}
+
 // ---- format helper ----------------------------------------------------------------
 static bool IsFloat32(IAudioMediaType* t, UINT32* ch, UINT32* sr) {
     if (!t) return false;
@@ -200,7 +220,7 @@ public:
         m_outer = outer ? outer : static_cast<IUnknown*>(&m_inner);
         InterlockedIncrement(&g_objects);
     }
-    ~CashVoiceAPO() { InterlockedDecrement(&g_objects); }
+    ~CashVoiceAPO() { InterlockedDecrement(&g_objects); Log(L"APO released"); }
 
     IUnknown* InnerUnknown() { return &m_inner; }
 
@@ -228,7 +248,7 @@ public:
         else {
             wchar_t i[64] = L"?";
             StringFromGUID2(riid, i, 64);
-            Log(L"QueryInterface: no %s", i);
+            if (FirstMiss(riid)) Log(L"QueryInterface: no %s", i);
             return E_NOINTERFACE;
         }
         static_cast<IUnknown*>(*ppv)->AddRef();   // delegating AddRef, as COM aggregation requires
@@ -236,13 +256,15 @@ public:
     }
 
     // IAudioProcessingObject
-    STDMETHOD(Reset)() override { return S_OK; }
+    STDMETHOD(Reset)() override { Log(L"Reset"); return S_OK; }
     STDMETHOD(GetLatency)(HNSTIME* pTime) override {
+        Log(L"GetLatency");
         if (!pTime) return E_POINTER;
         *pTime = 0;
         return S_OK;
     }
     STDMETHOD(GetRegistrationProperties)(APO_REG_PROPERTIES** ppRegProps) override {
+        Log(L"GetRegistrationProperties");
         if (!ppRegProps) return E_POINTER;
         const UINT32 nIf = 3;
         SIZE_T sz = sizeof(APO_REG_PROPERTIES) + (nIf - 1) * sizeof(IID);
@@ -273,8 +295,11 @@ public:
         GetShared();                 // create the shared mapping early (non-realtime thread)
         return S_OK;
     }
-    STDMETHOD(IsInputFormatSupported)(IAudioMediaType*, IAudioMediaType* pRequested,
+    STDMETHOD(IsInputFormatSupported)(IAudioMediaType* pOpposite, IAudioMediaType* pRequested,
                                       IAudioMediaType** ppSupported) override {
+        wchar_t a[96], b[96];
+        FormatStr(pOpposite, a, 96); FormatStr(pRequested, b, 96);
+        Log(L"IsInputFormatSupported opposite[%s] requested[%s]", a, b);
         if (!pRequested || !ppSupported) return E_POINTER;
         *ppSupported = nullptr;
         UINT32 ch = 0;
@@ -289,16 +314,23 @@ public:
         m_channels = ch;
         return S_OK;
     }
-    STDMETHOD(IsOutputFormatSupported)(IAudioMediaType*, IAudioMediaType* pRequested,
+    STDMETHOD(IsOutputFormatSupported)(IAudioMediaType* pOpposite, IAudioMediaType* pRequested,
                                        IAudioMediaType** ppSupported) override {
+        wchar_t a[96], b[96];
+        FormatStr(pOpposite, a, 96); FormatStr(pRequested, b, 96);
+        Log(L"IsOutputFormatSupported opposite[%s] requested[%s]", a, b);
         if (!pRequested || !ppSupported) return E_POINTER;
         *ppSupported = nullptr;
-        if (!IsFloat32(pRequested, nullptr, nullptr)) return APOERR_FORMAT_NOT_SUPPORTED;
+        if (!IsFloat32(pRequested, nullptr, nullptr)) {
+            Log(L"IsOutputFormatSupported: rejected");
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
         *ppSupported = pRequested;
         pRequested->AddRef();
         return S_OK;
     }
     STDMETHOD(GetInputChannelCount)(UINT32* pCount) override {
+        Log(L"GetInputChannelCount -> %u", m_channels);
         if (!pCount) return E_POINTER;
         *pCount = m_channels;
         return S_OK;
@@ -307,6 +339,7 @@ public:
     // IAudioProcessingObjectConfiguration
     STDMETHOD(LockForProcess)(UINT32 nIn, APO_CONNECTION_DESCRIPTOR** ppIn,
                               UINT32 nOut, APO_CONNECTION_DESCRIPTOR** ppOut) override {
+        Log(L"LockForProcess called: %u in, %u out", nIn, nOut);
         if (nIn != 1 || nOut != 1 || !ppIn || !ppOut) return E_INVALIDARG;
         UINT32 ch = 0, sr = 0;
         if (!IsFloat32(ppIn[0]->pFormat, &ch, &sr) || ch == 0) {
@@ -334,6 +367,7 @@ public:
         return S_OK;
     }
     STDMETHOD(UnlockForProcess)() override {
+        Log(L"UnlockForProcess");
         if (m_locked) {
             SharedHeader* s = g_shared;
             if (s && s->apoInstances > 0) InterlockedDecrement((volatile LONG*)&s->apoInstances);
