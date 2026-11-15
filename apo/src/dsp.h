@@ -60,6 +60,8 @@ struct Psola {
     float   curT = 264.f, decAcc = 0.f;
     int     decPhase = 0;
     bool    active = false;
+    bool    voiced = false;   // unvoiced sounds (s, f, sh, breath) have no pitch to shift: leave
+                              // their timing alone, or the fixed grain rate turns them into a buzz
 
     void init(int sampleRate) {
         sr = sampleRate;
@@ -72,7 +74,7 @@ struct Psola {
         int d = 1; while (d < (maxP / 4) * 4 + 64) d <<= 1;
         dec.assign((size_t)d, 0.f); dmask = d - 1;
         diff.assign((size_t)(maxP / 4 + 2), 0.f);
-        t = ts = dcount = 0; am = 0; curT = 0.0055f * (float)sr; decAcc = 0; decPhase = 0; active = false;
+        t = ts = dcount = 0; am = 0; curT = 0.0055f * (float)sr; decAcc = 0; decPhase = 0; active = false; voiced = false;
     }
 
     inline float at(int64_t i) const { return in[(size_t)(i & mask)]; }
@@ -92,6 +94,7 @@ struct Psola {
         const int64_t s = dcount - W - maxL;
         float energy = 0.f;
         for (int i = 0; i < W; ++i) { float v = dec[(size_t)((s + i) & dmask)]; energy += v * v; }
+        voiced = false;
         if (energy < 1e-6f * (float)W) { curT = 0.0055f * (float)sr; return; }   // silence
         float run = 0.f, best = 1e9f; int bestL = -1;
         diff[0] = 1.f;
@@ -120,6 +123,7 @@ struct Psola {
         }
         float T = std::min(std::max(l * 4.f, (float)minP), (float)maxP);
         curT = (std::fabs(T - curT) < 0.2f * curT) ? 0.5f * (curT + T) : T;
+        voiced = true;
     }
 
     inline void push(float x, bool analyse) {
@@ -159,7 +163,7 @@ struct Psola {
                 acc[o] += read(am + (double)k * f) * w;
                 wsum[o] += w;
             }
-            ts += (int64_t)std::max(curT / std::max(pitchRatio, 0.25f), 16.f);
+            ts += (int64_t)std::max(voiced ? curT / std::max(pitchRatio, 0.25f) : curT, 16.f);
         }
         if (u < 0) return 0.f;
         size_t o = (size_t)(u & mask);

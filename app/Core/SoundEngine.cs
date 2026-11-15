@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Linq;
 using System.Threading;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -24,7 +26,14 @@ public sealed class SoundEngine : IDisposable
     readonly SharedMem _shm;
     readonly object _lock = new();
     readonly List<Voice> _voices = new();
-    readonly List<WaveOutEvent> _local = new();
+    // Speakers/headphones: one low-latency output with a live master volume. It only runs while
+    // something is playing.
+    const int LocalRate = 48000;
+    readonly object _localLock = new();
+    MixingSampleProvider? _localMix;
+    VolumeSampleProvider? _localVol;
+    WasapiOut? _localOut;
+    float _localVolume = 0.8f;
     readonly Thread _thread;
     volatile bool _run = true;
     readonly AutoResetEvent _wake = new(false);
@@ -51,27 +60,100 @@ public sealed class SoundEngine : IDisposable
     public void StopAll()
     {
         lock (_lock) _voices.Clear();
-        WaveOutEvent[] copy;
-        lock (_local) copy = _local.ToArray();
-        foreach (var w in copy) { try { w.Stop(); } catch { } }
+        lock (_localLock) _localMix?.RemoveAllMixerInputs();
+        StopLocalSoon();
     }
 
-    public void PlayLocal(string path, float volume)
+    /// <summary>Master volume for sounds on your speakers/headphones; applies to sounds already playing.</summary>
+    public float LocalVolume
+    {
+        get => _localVolume;
+        set { _localVolume = value; lock (_localLock) if (_localVol != null) _localVol.Volume = value; }
+    }
+
+    /// <summary>Play a clip on the default output (path is decoded and loudness-matched like the mic copy).</summary>
+    public void PlayLocal(string path, float gain)
     {
         try
         {
-            var reader = new AudioFileReader(path) { Volume = Math.Clamp(volume, 0f, 2f) };
-            var wo = new WaveOutEvent();
-            wo.Init(reader);
-            wo.PlaybackStopped += (_, _) =>
+            var data = GetOrDecode(path, LocalRate);
+            lock (_localLock)
             {
-                lock (_local) _local.Remove(wo);
-                wo.Dispose(); reader.Dispose();
-            };
-            lock (_local) _local.Add(wo);
-            wo.Play();
+                if (_localOut == null)
+                {
+                    _localMix = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(LocalRate, 2)) { ReadFully = true };
+                    _localMix.MixerInputEnded += (_, _) => StopLocalSoon();
+                    _localVol = new VolumeSampleProvider(_localMix) { Volume = _localVolume };
+                    _localOut = new WasapiOut(AudioClientShareMode.Shared, true, 40);
+                    _localOut.Init(_localVol.ToWaveProvider());
+                    _localOut.Play();
+                }
+                var clip = new VolumeSampleProvider(new ArraySampleProvider(data, LocalRate)) { Volume = gain };
+                _localMix!.AddMixerInput(new MonoToStereoSampleProvider(clip));
+                Interlocked.Exchange(ref _localIdleSince, -1);
+            }
         }
         catch { }
+    }
+
+    long _localIdleSince = -1;
+
+    // Close the output a couple of seconds after the last sound ends (an open output keeps the
+    // audio device and a thread awake).
+    // Also raised on the audio thread while the mixer holds its own lock: don't take _localLock here.
+    void StopLocalSoon()
+    {
+        Interlocked.Exchange(ref _localIdleSince, Environment.TickCount64);
+        System.Threading.Tasks.Task.Delay(2500).ContinueWith(_ =>
+        {
+            lock (_localLock)
+            {
+                long idle = Interlocked.Read(ref _localIdleSince);
+                if (_localOut == null || idle < 0 || _localMix!.MixerInputs.Any()) return;
+                if (Environment.TickCount64 - idle < 2000) return;
+                try { _localOut.Stop(); } catch { }
+                _localOut.Dispose(); _localOut = null; _localMix = null; _localVol = null;
+            }
+        });
+    }
+
+    sealed class ArraySampleProvider : ISampleProvider
+    {
+        readonly float[] _d; int _pos;
+        public ArraySampleProvider(float[] d, int rate) { _d = d; WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(rate, 1); }
+        public WaveFormat WaveFormat { get; }
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int n = Math.Min(count, _d.Length - _pos);
+            if (n <= 0) return 0;
+            Array.Copy(_d, _pos, buffer, offset, n);
+            _pos += n;
+            return n;
+        }
+    }
+
+    // Clips from YouTube and files differ a lot in loudness. Bring each to about the level of a
+    // normal speaking voice (-20 dBFS RMS over its louder parts), without letting peaks clip.
+    static void Normalize(float[] a)
+    {
+        if (a.Length == 0) return;
+        const int Block = 2400;                   // 50 ms at 48 kHz
+        var rms = new List<double>();
+        double peak = 0;
+        for (int i = 0; i < a.Length; i += Block)
+        {
+            int n = Math.Min(Block, a.Length - i);
+            double e = 0;
+            for (int j = 0; j < n; j++) { double v = a[i + j]; e += v * v; peak = Math.Max(peak, Math.Abs(v)); }
+            rms.Add(Math.Sqrt(e / n));
+        }
+        if (peak < 1e-4) return;
+        rms.Sort();
+        double loud = rms[(int)(rms.Count * 0.8)];  // 80th percentile: ignores silences and fades
+        if (loud < 1e-5) return;
+        double gain = Math.Min(0.1 / loud, 0.95 / peak);
+        gain = Math.Clamp(gain, 0.05, 20);
+        for (int i = 0; i < a.Length; i++) a[i] = (float)(a[i] * gain);
     }
 
     /// <summary>Decode any supported audio file to mono float at the given sample rate (cached for short clips).</summary>
@@ -95,6 +177,7 @@ public sealed class SoundEngine : IDisposable
         while (list.Count < max && (n = sp.Read(buf, 0, buf.Length)) > 0)
             for (int i = 0; i < n; i++) list.Add(buf[i]);
         var arr = list.ToArray();
+        Normalize(arr);
         long bytes = (long)arr.Length * sizeof(float);
         if (arr.Length <= sampleRate * 30 && Interlocked.Read(ref _cacheBytes) + bytes <= CacheBudgetBytes
             && Cache.TryAdd(key, arr))
@@ -186,5 +269,6 @@ public sealed class SoundEngine : IDisposable
         _wake.Set();
         try { _thread.Join(500); } catch { }
         StopAll();
+        lock (_localLock) { _localOut?.Dispose(); _localOut = null; }
     }
 }

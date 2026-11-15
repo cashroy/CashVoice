@@ -51,7 +51,19 @@ struct SharedHeader {
     int64_t  writePos;
 };
 static_assert(sizeof(SharedHeader) == 96, "SharedHeader layout must be 96 bytes");
-static const SIZE_T kMapSize = sizeof(SharedHeader) + kRingFrames * sizeof(float);
+// After the ring: controls for the app's "hear yourself" monitor stream (added in 0.2.5; older
+// files are grown to this size when mapped). Layout MUST match MonitorExt in SharedMem.cs.
+struct MonitorExt {
+    volatile LONG claim;      // app sets 1 just before opening its monitor stream; the next
+                              // instance to start takes it (2) and is the monitor; 0 = none
+    uint32_t claimTick;       // GetTickCount() when the app claimed, so a stale claim expires
+    int32_t  wet;             // monitor hears the voice effects (1) or the plain mic (0)
+    uint32_t reserved[13];
+};
+static_assert(sizeof(MonitorExt) == 64, "MonitorExt layout must be 64 bytes");
+static const SIZE_T kRingBytes = kRingFrames * sizeof(float);
+static const SIZE_T kMapSize = sizeof(SharedHeader) + kRingBytes + sizeof(MonitorExt);
+static inline MonitorExt* Ext(SharedHeader* s) { return (MonitorExt*)((BYTE*)(s + 1) + kRingBytes); }
 
 static SharedHeader* g_shared = nullptr;
 static HANDLE        g_map    = nullptr;
@@ -211,6 +223,7 @@ class CashVoiceAPO final : public IAudioProcessingObject,
     IUnknown* m_outer = nullptr;   // never AddRef'd: the outer object owns us, not the other way round
     UINT32 m_channels = 0, m_sr = 0;
     bool   m_locked = false;
+    bool   m_monitor = false;     // this stream is CashVoice's own "hear yourself" playback
     int64_t m_readPos = 0;
     vf::Engine m_engine;
     std::vector<float> m_sound;
@@ -377,10 +390,15 @@ public:
             InterlockedIncrement((volatile LONG*)&s->apoInstances);
             int64_t wp = InterlockedCompareExchange64((volatile LONG64*)&s->writePos, 0, 0);
             m_readPos = wp - (int64_t)(s->leadFrames ? s->leadFrames : 2880);
+            MonitorExt* x = Ext(s);
+            m_monitor = false;
+            if (x->claim == 1 && GetTickCount() - x->claimTick < 3000 &&
+                InterlockedCompareExchange(&x->claim, 2, 1) == 1)
+                m_monitor = true;
         }
         m_locked = true;
-        Log(L"LockForProcess: %u ch, %u Hz, max %u frames, shared=%s",
-            ch, sr, ppIn[0]->u32MaxFrameCount, s ? L"yes" : L"no");
+        Log(L"LockForProcess: %u ch, %u Hz, max %u frames, shared=%s%s",
+            ch, sr, ppIn[0]->u32MaxFrameCount, s ? L"yes" : L"no", m_monitor ? L", monitor stream" : L"");
         return S_OK;
     }
     STDMETHOD(UnlockForProcess)() override {
@@ -388,6 +406,8 @@ public:
         if (m_locked) {
             SharedHeader* s = g_shared;
             if (s && s->apoInstances > 0) InterlockedDecrement((volatile LONG*)&s->apoInstances);
+            if (s && m_monitor) InterlockedCompareExchange(&Ext(s)->claim, 0, 2);
+            m_monitor = false;
             m_locked = false;
         }
         return S_OK;
@@ -417,6 +437,10 @@ public:
             p.micGain = s->micGain; p.soundGain = s->soundGain;
             s->reserved0++;                                  // heartbeat: the app shows "live" while this moves
             ring = (const float*)(s + 1);
+            if (m_monitor) {                                 // you hear yourself; sounds play locally anyway
+                p.soundOn = false;
+                if (!Ext(s)->wet) p.voiceOn = false;
+            }
             wp   = InterlockedCompareExchange64((volatile LONG64*)&s->writePos, 0, 0);
             if (s->leadFrames) lead = s->leadFrames;
             // keep our read cursor locked to wall-clock time (writePos - lead)

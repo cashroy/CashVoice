@@ -7,7 +7,7 @@ namespace CashVoice.Core;
 
 // Layout MUST match SharedHeader in apo/src/CashVoiceAPO.cpp (96 bytes, natural alignment).
 [StructLayout(LayoutKind.Sequential)]
-public struct SharedHeader
+public unsafe struct SharedHeader
 {
     public uint Magic, Version;
     public int VoiceEnabled, MicMute;
@@ -17,6 +17,16 @@ public struct SharedHeader
     public uint Reserved0;      // heartbeat
     public float Formant;       // semitones
     public long WritePos;
+}
+
+// After the ring (0.2.5+). Layout MUST match MonitorExt in CashVoiceAPO.cpp (64 bytes).
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct MonitorExt
+{
+    public int Claim;          // 1 = app is about to open its monitor stream, 2 = an APO instance took it
+    public uint ClaimTick;     // Environment.TickCount when claimed
+    public int Wet;            // monitor hears the voice effects
+    public fixed uint Reserved[13];
 }
 
 /// <summary>
@@ -38,17 +48,25 @@ public sealed unsafe class SharedMem : IDisposable
     byte* _base;
     volatile bool _connected;
 
+    bool _hasExt;
+
     public bool Connected => _connected;
+    /// <summary>The running APO knows about the monitor controls (0.2.5+).</summary>
+    public bool HasMonitor => _connected && _hasExt;
     SharedHeader* H => (SharedHeader*)_base;
     float* Ring => (float*)(_base + HeaderSize);
+    MonitorExt* X => (MonitorExt*)(_base + HeaderSize + (long)RingFrames * sizeof(float));
 
     public bool TryConnect()
     {
         if (_connected) return true;
-        long size = HeaderSize + (long)RingFrames * sizeof(float);
+        long baseSize = HeaderSize + (long)RingFrames * sizeof(float);
+        long fullSize = baseSize + sizeof(MonitorExt);
         // Cheap check first so polling doesn't throw while the APO hasn't created the file yet.
         var fi = new System.IO.FileInfo(SharedFile);
-        if (!fi.Exists || fi.Length < size) return false;
+        if (!fi.Exists || fi.Length < baseSize) return false;
+        _hasExt = fi.Length >= fullSize;          // an older APO still running makes the smaller file
+        long size = _hasExt ? fullSize : baseSize;
         try
         {
             var fs = new System.IO.FileStream(SharedFile, System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite,
@@ -125,6 +143,33 @@ public sealed unsafe class SharedMem : IDisposable
         h->SoundGain = (float)c.SoundGain;
         h->SoundEnabled = c.SoundsIntoMic ? 1 : 0;
     }
+
+    /// <summary>Remap if a newer APO grew the file since we connected (gains the monitor controls).</summary>
+    public void RefreshLayout()
+    {
+        if (!_connected || _hasExt) return;
+        try
+        {
+            long full = HeaderSize + (long)RingFrames * sizeof(float) + sizeof(MonitorExt);
+            if (new System.IO.FileInfo(SharedFile).Length >= full) { Cleanup(); TryConnect(); }
+        }
+        catch { }
+    }
+
+    // ---- "hear yourself" monitor ---------------------------------------------------------
+    /// <summary>Call right before opening the monitor's capture stream.</summary>
+    public void ClaimMonitor(bool wet)
+    {
+        if (!HasMonitor) return;
+        X->Wet = wet ? 1 : 0;
+        X->ClaimTick = (uint)Environment.TickCount;
+        Interlocked.Exchange(ref X->Claim, 1);
+    }
+    public bool MonitorWet { set { if (HasMonitor) X->Wet = value ? 1 : 0; } }
+    /// <summary>True once an APO instance took the claim (the monitor stream is being processed).</summary>
+    public bool MonitorClaimed => HasMonitor && Volatile.Read(ref X->Claim) == 2;
+    /// <summary>Drop a claim nobody took (stream failed to start).</summary>
+    public void CancelMonitorClaim() { if (HasMonitor) Interlocked.CompareExchange(ref X->Claim, 0, 1); }
 
     public void Dispose() => Cleanup();
 }

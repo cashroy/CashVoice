@@ -131,7 +131,10 @@
               <TextBlock Text="NAME" Style="{StaticResource Eyebrow}"/>
               <TextBox x:Name="SoundName" Margin="0,0,0,20" LostFocus="SoundName_LostFocus"/>
               <TextBlock Text="VOLUME" Style="{StaticResource Eyebrow}"/>
-              <Slider x:Name="SoundVolume" Minimum="0" Maximum="1.5" Value="1" Margin="0,0,0,20" ValueChanged="SoundVolume_Changed"/>
+              <DockPanel Margin="0,0,0,20">
+                <TextBlock x:Name="LblSoundVolume" DockPanel.Dock="Right" Width="64" TextAlignment="Right" VerticalAlignment="Center" FontWeight="Bold"/>
+                <Slider x:Name="SoundVolume" Minimum="-24" Maximum="12" SmallChange="0.5" LargeChange="3" Value="0" ValueChanged="SoundVolume_Changed"/>
+              </DockPanel>
               <TextBlock Text="HOTKEY" Style="{StaticResource Eyebrow}"/>
               <c:HotkeyBox x:Name="SoundHotkey" Margin="0,0,0,24"/>
               <Button Content="Delete sound" Style="{StaticResource Quiet}" HorizontalAlignment="Left" Click="DeleteSound_Click"/>
@@ -171,20 +174,39 @@
             <CheckBox x:Name="ChkSoundsIntoMic" Content="Play soundboard sounds into the mic" Click="Settings_Changed"/>
             <CheckBox x:Name="ChkMonitor" Content="Also play them on my speakers / headphones" Click="Settings_Changed"/>
             <Grid Margin="0,14,0,0">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
               <TextBlock Text="Mic volume" VerticalAlignment="Center"/>
-              <Slider x:Name="SldMic" Grid.Column="1" Minimum="0" Maximum="2" ValueChanged="Settings_Slider"/>
+              <Slider x:Name="SldMic" Grid.Column="1" Minimum="-30" Maximum="12" SmallChange="0.5" LargeChange="3" ValueChanged="Settings_Slider"/>
+              <TextBlock x:Name="LblMic" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="Bold"/>
             </Grid>
             <Grid Margin="0,8,0,0">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
               <TextBlock Text="Soundboard volume (in mic)" VerticalAlignment="Center"/>
-              <Slider x:Name="SldSound" Grid.Column="1" Minimum="0" Maximum="2" ValueChanged="Settings_Slider"/>
+              <Slider x:Name="SldSound" Grid.Column="1" Minimum="-30" Maximum="12" SmallChange="0.5" LargeChange="3" ValueChanged="Settings_Slider"/>
+              <TextBlock x:Name="LblSound" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="Bold"/>
             </Grid>
             <Grid Margin="0,8,0,0">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
               <TextBlock Text="Soundboard volume (speakers)" VerticalAlignment="Center"/>
-              <Slider x:Name="SldLocal" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="Settings_Slider"/>
+              <Slider x:Name="SldLocal" Grid.Column="1" Minimum="-40" Maximum="6" SmallChange="0.5" LargeChange="3" ValueChanged="Settings_Slider"/>
+              <TextBlock x:Name="LblLocal" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="Bold"/>
             </Grid>
+            <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0"
+                       Text="0 dB is normal. Sounds are loudness-matched when they're loaded, so each one starts out about as loud as your voice."/>
+
+            <Border Height="1" Background="{StaticResource Line}" Margin="0,30"/>
+            <TextBlock Text="MONITOR" Style="{StaticResource Eyebrow}"/>
+            <TextBlock Text="Hear yourself" Style="{StaticResource H2}" Margin="0,0,0,10"/>
+            <CheckBox x:Name="ChkHearSelf" Content="Play my mic in my headphones" Click="Monitor_Changed"/>
+            <CheckBox x:Name="ChkHearWet" Content="With the voice effect (untick to hear your normal voice)" Click="Monitor_Changed"/>
+            <Grid Margin="0,14,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
+              <TextBlock Text="Monitor volume" VerticalAlignment="Center"/>
+              <Slider x:Name="SldHear" Grid.Column="1" Minimum="-40" Maximum="6" SmallChange="0.5" LargeChange="3" ValueChanged="Settings_Slider"/>
+              <TextBlock x:Name="LblHear" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="Bold"/>
+            </Grid>
+            <TextBlock x:Name="HearStatus" Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap"
+                       Text="Use headphones: on speakers your mic hears itself and howls. Delay is about 25 ms, plus about 35 ms while pitch or formant is changed."/>
 
             <Border Height="1" Background="{StaticResource Line}" Margin="0,30"/>
             <TextBlock Text="HOTKEYS" Style="{StaticResource Eyebrow}"/>

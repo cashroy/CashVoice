@@ -75,6 +75,9 @@ public sealed class AppConfig
     public bool Autostart { get; set; }
     public bool AutoUpdate { get; set; } = true;
     public bool FormantsMigrated { get; set; }
+    public bool HearSelf { get; set; }                 // "hear yourself" monitor on
+    public bool HearWet { get; set; } = true;          // ...with the voice effect
+    public double HearVolume { get; set; } = 1.0;
     public ObservableCollection<VoicePreset> Voices { get; set; } = new(DefaultVoices());
     public ObservableCollection<SoundItem> Sounds { get; set; } = new();
     public Dictionary<string, string> GlobalHotkeys { get; set; } = DefaultHotkeys();

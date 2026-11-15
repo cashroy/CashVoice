@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     readonly AppConfig _cfg;
     readonly SharedMem _shm = new();
     readonly SoundEngine _snd;
+    readonly MicMonitor _mon;
     readonly HotkeyManager _hk;
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(6) };
@@ -94,6 +95,7 @@ public partial class MainWindow : Window
         AppPaths.Ensure();
         _cfg = AppConfig.Load();
         _snd = new SoundEngine(_shm);
+        _mon = new MicMonitor(_shm);
         _hk = new HotkeyManager(this);
 
         BuildVoiceEditor();
@@ -102,6 +104,8 @@ public partial class MainWindow : Window
         VoiceList.ItemsSource = _cfg.Voices;
         VoiceList.SelectedItem = _cfg.Voices.FirstOrDefault(v => v.Id == _cfg.SelectedVoiceId) ?? _cfg.Voices[0];
         SoundList.ItemsSource = _cfg.Sounds;
+        ListReorder.Enable(VoiceList, () => _cfg.Voices, MarkDirty);     // next/previous follow this order
+        ListReorder.Enable(SoundList, () => _cfg.Sounds, MarkDirty);
 
         SetupTray();
         RebuildHotkeys();
@@ -304,7 +308,8 @@ public partial class MainWindow : Window
         try
         {
             SoundName.Text = s.Name;
-            SoundVolume.Value = s.Volume;
+            SoundVolume.Value = ToDb(s.Volume, SoundVolume.Minimum);
+            LblSoundVolume.Text = DbText(SoundVolume.Value, SoundVolume.Minimum);
             SoundHotkey.Value = s.Hotkey;
         }
         finally { _loading = false; }
@@ -326,8 +331,9 @@ public partial class MainWindow : Window
 
     void SoundVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (LblSoundVolume != null) LblSoundVolume.Text = DbText(SoundVolume.Value, SoundVolume.Minimum);
         if (_loading || SoundList.SelectedItem is not SoundItem s) return;
-        s.Volume = SoundVolume.Value; MarkDirty();
+        s.Volume = FromDb(SoundVolume.Value, SoundVolume.Minimum); MarkDirty();
     }
 
     void PlaySound_Click(object sender, RoutedEventArgs e)
@@ -349,7 +355,11 @@ public partial class MainWindow : Window
         string path = Path.Combine(AppPaths.Sounds, s.File);
         if (!File.Exists(path)) { ImportStatus.Text = $"File missing for \"{s.Name}\"."; return; }
 
-        if (_cfg.MonitorLocally) _snd.PlayLocal(path, (float)(_cfg.LocalVolume * s.Volume));
+        if (_cfg.MonitorLocally)
+        {
+            float lg = (float)s.Volume;
+            Task.Run(() => _snd.PlayLocal(path, lg));
+        }
         if (_cfg.SoundsIntoMic && _shm.Connected)
         {
             int sr = _snd.SampleRate; float gain = (float)s.Volume;
@@ -430,10 +440,18 @@ public partial class MainWindow : Window
         ChkMonitor.IsChecked = _cfg.MonitorLocally;
         ChkAutostart.IsChecked = _cfg.Autostart;
         ChkAutoUpdate.IsChecked = _cfg.AutoUpdate;
-        SldMic.Value = _cfg.MicGain;
-        SldSound.Value = _cfg.SoundGain;
-        SldLocal.Value = _cfg.LocalVolume;
+        SldMic.Value = ToDb(_cfg.MicGain, SldMic.Minimum);
+        SldSound.Value = ToDb(_cfg.SoundGain, SldSound.Minimum);
+        SldLocal.Value = ToDb(_cfg.LocalVolume, SldLocal.Minimum);
+        SldHear.Value = ToDb(_cfg.HearVolume, SldHear.Minimum);
+        ChkHearSelf.IsChecked = _cfg.HearSelf;
+        ChkHearWet.IsChecked = _cfg.HearWet;
+        UpdateLevelLabels();
+        _snd.LocalVolume = (float)_cfg.LocalVolume;
+        _mon.Volume = (float)_cfg.HearVolume;
+        _mon.Wet = _cfg.HearWet;
         _loading = false;
+        if (_cfg.HearSelf) StartMonitor();
 
         foreach (var (key, label) in GlobalActions)
         {
@@ -542,12 +560,55 @@ public partial class MainWindow : Window
         PushParams(); MarkDirty();
     }
 
+    // ---- levels in dB ----------------------------------------------------------------------
+    // Sliders show decibels (how loudness is heard); the config keeps plain gain factors.
+    // The bottom of each slider means off.
+    static double ToDb(double gain, double min) => gain <= 0 ? min : Math.Clamp(20 * Math.Log10(gain), min, 24);
+    static double FromDb(double db, double min) => db <= min + 0.01 ? 0 : Math.Pow(10, db / 20);
+    static string DbText(double db, double min) => db <= min + 0.01 ? "off" : (db > 0.04 ? "+" : "") + db.ToString("0.#") + " dB";
+
+    void UpdateLevelLabels()
+    {
+        LblMic.Text = DbText(SldMic.Value, SldMic.Minimum);
+        LblSound.Text = DbText(SldSound.Value, SldSound.Minimum);
+        LblLocal.Text = DbText(SldLocal.Value, SldLocal.Minimum);
+        LblHear.Text = DbText(SldHear.Value, SldHear.Minimum);
+    }
+
+    // ---- hear yourself ---------------------------------------------------------------------
+    void Monitor_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _cfg.HearSelf = ChkHearSelf.IsChecked == true;
+        _cfg.HearWet = ChkHearWet.IsChecked == true;
+        _mon.Wet = _cfg.HearWet;
+        if (_cfg.HearSelf && !_mon.Running) StartMonitor();
+        else if (!_cfg.HearSelf && _mon.Running) _mon.Stop();
+        MarkDirty();
+    }
+
+    void StartMonitor()
+    {
+        _mon.Start();
+        if (_mon.Error != null)
+        {
+            HearStatus.Text = "Couldn't start: " + _mon.Error;
+            ChkHearSelf.IsChecked = _cfg.HearSelf = false;
+        }
+        else if (!_shm.HasMonitor)
+            HearStatus.Text = "Playing. Restart Windows audio (Apply in Settings) once so the voice-effect switch works.";
+    }
+
     void Settings_Slider(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_loading) return;
-        _cfg.MicGain = SldMic.Value;
-        _cfg.SoundGain = SldSound.Value;
-        _cfg.LocalVolume = SldLocal.Value;
+        _cfg.MicGain = FromDb(SldMic.Value, SldMic.Minimum);
+        _cfg.SoundGain = FromDb(SldSound.Value, SldSound.Minimum);
+        _cfg.LocalVolume = FromDb(SldLocal.Value, SldLocal.Minimum);
+        _cfg.HearVolume = FromDb(SldHear.Value, SldHear.Minimum);
+        _snd.LocalVolume = (float)_cfg.LocalVolume;
+        _mon.Volume = (float)_cfg.HearVolume;
+        UpdateLevelLabels();
         PushParams(); MarkDirty();
     }
 
@@ -654,6 +715,7 @@ public partial class MainWindow : Window
 
     void Tick()
     {
+        if (_ticks % 5 == 0) _shm.RefreshLayout();
         // While the driver isn't running, look for it every 3 s instead of every second.
         if (!_shm.Connected && (++_ticks % 3 == 0 || _ticks == 1) && _shm.TryConnect()) PushParams();
         else if (_shm.Connected) PushParams();     // heartbeat: keeps the APO in sync if audio service restarted
@@ -742,6 +804,7 @@ public partial class MainWindow : Window
         _exiting = true;
         _cfg.Save();
         _hk.Dispose();
+        _mon.Dispose();
         _snd.Dispose();
         _shm.Dispose();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
