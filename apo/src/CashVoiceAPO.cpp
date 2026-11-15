@@ -170,7 +170,24 @@ class CashVoiceAPO final : public IAudioProcessingObject,
                             public IAudioProcessingObjectRT,
                             public IAudioProcessingObjectConfiguration,
                             public IVfSystemEffects {
+    // The audio engine creates APOs aggregated: it passes its own "outer" object to CreateInstance
+    // and only talks to us through it. So, as COM aggregation requires, we have a private
+    // ("non-delegating") IUnknown that owns our lifetime, and every interface's IUnknown methods
+    // forward to the outer object (or to that private IUnknown when nobody aggregates us).
+    struct Inner final : IUnknown {
+        CashVoiceAPO* self = nullptr;
+        STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override { return self->InnerQueryInterface(riid, ppv); }
+        STDMETHOD_(ULONG, AddRef)() override { return (ULONG)InterlockedIncrement(&self->m_ref); }
+        STDMETHOD_(ULONG, Release)() override {
+            ULONG r = (ULONG)InterlockedDecrement(&self->m_ref);
+            if (r == 0) delete self;
+            return r;
+        }
+    };
+
     LONG   m_ref = 1;
+    Inner  m_inner;
+    IUnknown* m_outer = nullptr;   // never AddRef'd: the outer object owns us, not the other way round
     UINT32 m_channels = 0, m_sr = 0;
     bool   m_locked = false;
     int64_t m_readPos = 0;
@@ -178,14 +195,29 @@ class CashVoiceAPO final : public IAudioProcessingObject,
     std::vector<float> m_sound;
 
 public:
-    CashVoiceAPO()  { InterlockedIncrement(&g_objects); }
+    explicit CashVoiceAPO(IUnknown* outer) {
+        m_inner.self = this;
+        m_outer = outer ? outer : static_cast<IUnknown*>(&m_inner);
+        InterlockedIncrement(&g_objects);
+    }
     ~CashVoiceAPO() { InterlockedDecrement(&g_objects); }
 
-    // IUnknown
-    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override {
+    IUnknown* InnerUnknown() { return &m_inner; }
+
+    // IUnknown (delegating)
+    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override { return m_outer->QueryInterface(riid, ppv); }
+    STDMETHOD_(ULONG, AddRef)() override { return m_outer->AddRef(); }
+    STDMETHOD_(ULONG, Release)() override { return m_outer->Release(); }
+
+    HRESULT InnerQueryInterface(REFIID riid, void** ppv) {
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
-        if (IsEqualGUID(riid, __uuidof(IUnknown)) || IsEqualGUID(riid, __uuidof(IAudioProcessingObject)))
+        if (IsEqualGUID(riid, __uuidof(IUnknown))) {
+            *ppv = static_cast<IUnknown*>(&m_inner);
+            m_inner.AddRef();
+            return S_OK;
+        }
+        if (IsEqualGUID(riid, __uuidof(IAudioProcessingObject)))
             *ppv = static_cast<IAudioProcessingObject*>(this);
         else if (IsEqualGUID(riid, __uuidof(IAudioProcessingObjectRT)))
             *ppv = static_cast<IAudioProcessingObjectRT*>(this);
@@ -199,14 +231,8 @@ public:
             Log(L"QueryInterface: no %s", i);
             return E_NOINTERFACE;
         }
-        AddRef();
+        static_cast<IUnknown*>(*ppv)->AddRef();   // delegating AddRef, as COM aggregation requires
         return S_OK;
-    }
-    STDMETHOD_(ULONG, AddRef)() override { return (ULONG)InterlockedIncrement(&m_ref); }
-    STDMETHOD_(ULONG, Release)() override {
-        ULONG r = (ULONG)InterlockedDecrement(&m_ref);
-        if (r == 0) delete this;
-        return r;
     }
 
     // IAudioProcessingObject
@@ -390,14 +416,21 @@ public:
         return r;
     }
     STDMETHOD(CreateInstance)(IUnknown* outer, REFIID riid, void** ppv) override {
-        if (outer) return CLASS_E_NOAGGREGATION;
+        if (!ppv) return E_POINTER;
+        *ppv = nullptr;
         wchar_t i[64] = L"?";
         StringFromGUID2(riid, i, 64);
-        CashVoiceAPO* apo = new (std::nothrow) CashVoiceAPO();
+        // The audio engine aggregates APOs (outer != null); COM then only allows asking for IUnknown.
+        if (outer && !IsEqualGUID(riid, __uuidof(IUnknown))) {
+            Log(L"CreateInstance aggregated iid=%s -> CLASS_E_NOAGGREGATION", i);
+            return CLASS_E_NOAGGREGATION;
+        }
+        CashVoiceAPO* apo = new (std::nothrow) CashVoiceAPO(outer);
         if (!apo) return E_OUTOFMEMORY;
-        HRESULT hr = apo->QueryInterface(riid, ppv);
-        apo->Release();
-        Log(L"CreateInstance iid=%s -> 0x%08lX", i, (unsigned long)hr);
+        IUnknown* inner = apo->InnerUnknown();
+        HRESULT hr = inner->QueryInterface(riid, ppv);
+        inner->Release();
+        Log(L"CreateInstance %s iid=%s -> 0x%08lX", outer ? L"aggregated" : L"plain", i, (unsigned long)hr);
         return hr;
     }
     STDMETHOD(LockServer)(BOOL lock) override {

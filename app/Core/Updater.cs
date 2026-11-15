@@ -67,7 +67,10 @@ public static class Updater
     public static async Task<Release?> CheckAsync(CancellationToken ct = default)
     {
         using var resp = await Http.GetAsync(LatestApi, ct);
-        if (!resp.IsSuccessStatusCode) return null;          // no releases yet, or rate limited
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;   // no releases yet
+        if (resp.StatusCode is System.Net.HttpStatusCode.Forbidden or (System.Net.HttpStatusCode)429)
+            throw new HttpRequestException("GitHub is limiting update checks from this network; try again in an hour");
+        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"GitHub answered {(int)resp.StatusCode}");
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var root = doc.RootElement;
         string tag = root.GetProperty("tag_name").GetString() ?? "";
