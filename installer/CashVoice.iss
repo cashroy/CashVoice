@@ -1,6 +1,6 @@
 ; CashVoice installer (Inno Setup 6). Built by .github/workflows/build.yml
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.2.0"
 #endif
 [Setup]
 AppName=CashVoice

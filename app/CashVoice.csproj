@@ -11,7 +11,7 @@
     <RootNamespace>CashVoice</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Framework-dependent: the installer adds the .NET 8 Desktop Runtime if missing. Runs on newer runtimes too. -->
     <RollForward>Major</RollForward>
