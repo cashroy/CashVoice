@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -63,8 +64,61 @@ public static class Updater
         return new Version(v.Major, v.Minor, Math.Max(0, v.Build));
     }
 
+    // github.com/<repo>/releases/latest answers with a redirect to the newest tag. Unlike
+    // api.github.com (60 requests an hour per network without a login), the website and release
+    // downloads aren't rate limited like that, so update checks never get blocked.
+    static readonly HttpClient NoRedirect = CreateNoRedirectClient();
+    static HttpClient CreateNoRedirectClient()
+    {
+        var c = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("CashVoice-Updater");
+        return c;
+    }
+
     /// <summary>Returns the latest release if it is newer than this build and has files for this PC.</summary>
     public static async Task<Release?> CheckAsync(CancellationToken ct = default)
+    {
+        string tag;
+        using (var r = await NoRedirect.GetAsync($"https://github.com/{Repo}/releases/latest", ct))
+        {
+            var loc = r.Headers.Location?.ToString() ?? "";
+            int i = loc.IndexOf("/releases/tag/", StringComparison.Ordinal);
+            if (i < 0)
+            {
+                if ((int)r.StatusCode is >= 300 and < 400 || r.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return null;                                        // no releases yet
+                return await CheckViaApiAsync(ct);                      // unexpected answer: try the API
+            }
+            tag = Uri.UnescapeDataString(loc[(i + "/releases/tag/".Length)..]);
+        }
+        var ver = ParseVersion(tag);
+        if (ver == null || ver <= Current) return null;
+
+        string dl = $"https://github.com/{Repo}/releases/download/{Uri.EscapeDataString(tag)}/";
+        var sums = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            string txt = await Http.GetStringAsync(dl + "SHA256SUMS.txt", ct);
+            foreach (var line in txt.Split('\n'))
+            {
+                var parts = line.Trim().Split(new[] { ' ', '*' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2) sums[parts[1].Trim().TrimStart('*')] = parts[0];
+            }
+        }
+        catch (HttpRequestException) { }    // releases before 0.2.4 have no checksum file
+
+        // With a checksum file, only offer files it lists; without one, assume the usual files exist.
+        Asset? Make(string name) =>
+            sums.Count > 0 && !sums.ContainsKey(name)
+                ? null
+                : new Asset(name, dl + name, sums.TryGetValue(name, out var h) ? h : null);
+        var app = Make($"CashVoice-{Arch}.exe");
+        if (app == null) return null;
+        return new Release(ver, tag, $"https://github.com/{Repo}/releases/tag/{Uri.EscapeDataString(tag)}",
+                           app, Make($"CashVoiceAPO-{Arch}.dll"));
+    }
+
+    static async Task<Release?> CheckViaApiAsync(CancellationToken ct)
     {
         using var resp = await Http.GetAsync(LatestApi, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;   // no releases yet

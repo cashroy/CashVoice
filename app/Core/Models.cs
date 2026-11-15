@@ -35,6 +35,7 @@ public sealed class VoicePreset : Notifier
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "Custom";
     public double Pitch { get; set; }          // semitones
+    public double Formant { get; set; }        // semitones: + smaller/brighter, - bigger/darker
     public double RingHz { get; set; } = 50;
     public double RingMix { get; set; }
     public double EchoMs { get; set; } = 250;
@@ -73,6 +74,7 @@ public sealed class AppConfig
     public double LocalVolume { get; set; } = 0.8;
     public bool Autostart { get; set; }
     public bool AutoUpdate { get; set; } = true;
+    public bool FormantsMigrated { get; set; }
     public ObservableCollection<VoicePreset> Voices { get; set; } = new(DefaultVoices());
     public ObservableCollection<SoundItem> Sounds { get; set; } = new();
     public Dictionary<string, string> GlobalHotkeys { get; set; } = DefaultHotkeys();
@@ -90,10 +92,10 @@ public sealed class AppConfig
     public static List<VoicePreset> DefaultVoices() => new()
     {
         new() { Id = "normal",   Name = "Normal (no effect)" },
-        new() { Id = "deep",     Name = "Deep",       Pitch = -5 },
-        new() { Id = "giant",    Name = "Giant",      Pitch = -9, Drive = 0.1 },
-        new() { Id = "chipmunk", Name = "Chipmunk",   Pitch = 7 },
-        new() { Id = "squeaky",  Name = "Squeaky",    Pitch = 11 },
+        new() { Id = "deep",     Name = "Deep",       Pitch = -5, Formant = -3 },
+        new() { Id = "giant",    Name = "Giant",      Pitch = -9, Formant = -5, Drive = 0.1 },
+        new() { Id = "chipmunk", Name = "Chipmunk",   Pitch = 7, Formant = 5 },
+        new() { Id = "squeaky",  Name = "Squeaky",    Pitch = 11, Formant = 7 },
         new() { Id = "robot",    Name = "Robot",      RingHz = 55, RingMix = 0.85 },
         new() { Id = "alien",    Name = "Alien",      Pitch = 3, RingHz = 18, RingMix = 0.6 },
         new() { Id = "radio",    Name = "Radio / Megaphone", HpHz = 400, LpHz = 3200, Drive = 0.25 },
@@ -119,6 +121,17 @@ public sealed class AppConfig
         // "demon" was a built-in voice in early builds; it's been retired.
         foreach (var v in Voices.Where(v => v.Id == "demon").ToList()) Voices.Remove(v);
         if (Voices.Count == 0) Voices = new(DefaultVoices());
+        // 0.2.4 added formant shift: give built-in voices that are still exactly as shipped their new
+        // formant setting (configs from before 0.2.4 have no "Formant" values at all).
+        if (!FormantsMigrated)
+        {
+            FormantsMigrated = true;
+            foreach (var d in DefaultVoices().Where(d => d.Formant != 0))
+            {
+                var v = Voices.FirstOrDefault(x => x.Id == d.Id);
+                if (v != null && v.Formant == 0 && v.Pitch == d.Pitch && v.Drive == d.Drive) v.Formant = d.Formant;
+            }
+        }
         // Move anyone still on the old defaults (which clash on many PCs) to the new ones.
         string[] oldDefaults = { "Ctrl+Alt+F1", "Ctrl+Alt+F2", "Ctrl+Alt+F3", "Ctrl+Alt+F4", "Ctrl+Alt+F5" };
         string[] keys = { "toggle", "next", "prev", "mute", "stop" };

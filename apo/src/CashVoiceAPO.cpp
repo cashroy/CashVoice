@@ -46,7 +46,8 @@ struct SharedHeader {
     float    pitch, ringHz, ringMix, echoMs, echoFb, echoMix, hpHz, lpHz, drive, micGain, soundGain;
     int32_t  soundEnabled;
     uint32_t apoSampleRate, apoInstances, leadFrames;
-    uint32_t reserved0, reserved1;
+    uint32_t reserved0;   // heartbeat
+    float    formant;     // semitones (was reserved1, so older apps leave it at 0)
     int64_t  writePos;
 };
 static_assert(sizeof(SharedHeader) == 96, "SharedHeader layout must be 96 bytes");
@@ -410,7 +411,7 @@ public:
         int64_t wp = 0, lead = 2880;
         if (s) {
             p.voiceOn = s->voiceEnabled != 0;  p.micMute = s->micMute != 0;  p.soundOn = s->soundEnabled != 0;
-            p.pitch = s->pitch; p.ringHz = s->ringHz; p.ringMix = s->ringMix;
+            p.pitch = s->pitch; p.formant = s->formant; p.ringHz = s->ringHz; p.ringMix = s->ringMix;
             p.echoMs = s->echoMs; p.echoFb = s->echoFb; p.echoMix = s->echoMix;
             p.hpHz = s->hpHz; p.lpHz = s->lpHz; p.drive = s->drive;
             p.micGain = s->micGain; p.soundGain = s->soundGain;

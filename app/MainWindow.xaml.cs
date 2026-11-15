@@ -202,7 +202,8 @@ public partial class MainWindow : Window
         VoiceEditor.Children.Add(_voiceHotkey);
 
         VoiceEditor.Children.Add(new TextBlock { Text = "SOUND", Style = (Style)FindResource("Eyebrow") });
-        AddSlider("Pitch (semitones)", -24, 24, 0.5, v => v.Pitch, (v, x) => v.Pitch = x);
+        AddSlider("Pitch (semitones)", -12, 12, 0.5, v => v.Pitch, (v, x) => v.Pitch = x);
+        AddSlider("Formant (semitones)", -12, 12, 0.5, v => v.Formant, (v, x) => v.Formant = x);
         AddSlider("Robot / ring-mod mix", 0, 1, 0.05, v => v.RingMix, (v, x) => v.RingMix = x);
         AddSlider("Ring-mod frequency (Hz)", 5, 400, 1, v => v.RingHz, (v, x) => v.RingHz = x);
         AddSlider("Echo mix", 0, 1, 0.05, v => v.EchoMix, (v, x) => v.EchoMix = x);
@@ -264,7 +265,7 @@ public partial class MainWindow : Window
         var v = new VoicePreset
         {
             Name = "My voice " + (_cfg.Voices.Count + 1),
-            Pitch = copy.Pitch, RingHz = copy.RingHz, RingMix = copy.RingMix, EchoMs = copy.EchoMs,
+            Pitch = copy.Pitch, Formant = copy.Formant, RingHz = copy.RingHz, RingMix = copy.RingMix, EchoMs = copy.EchoMs,
             EchoFb = copy.EchoFb, EchoMix = copy.EchoMix, HpHz = copy.HpHz, LpHz = copy.LpHz, Drive = copy.Drive,
         };
         _cfg.Voices.Add(v);

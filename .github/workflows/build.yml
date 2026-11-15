@@ -27,6 +27,14 @@ jobs:
           "VERSION=$v" >> $env:GITHUB_ENV
           "Building version $v"
 
+      - name: Test the voice DSP
+        run: |
+          cmake -S apo/test -B apo/build/test -A x64
+          cmake --build apo/build/test --config Release
+          if ($LASTEXITCODE -ne 0) { throw "test build failed" }
+          & apo/build/test/Release/dsp_test.exe
+          if ($LASTEXITCODE -ne 0) { throw "DSP checks failed" }
+
       - name: Build APO (C++, x64 + ARM64)
         run: |
           cmake -S apo -B apo/build/x64 -A x64
@@ -88,6 +96,9 @@ jobs:
             Copy-Item "publish\$a\CashVoice.exe" "dist\CashVoice-$a.exe"            # used by in-app updates
             Copy-Item "apo\build\$a\Release\CashVoiceAPO.dll" "dist\CashVoiceAPO-$a.dll"
           }
+          # Checksums for in-app updates (read from the release downloads, not the rate-limited API).
+          $sums = @(Get-ChildItem dist -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" })
+          Set-Content -Encoding ascii -Path dist\SHA256SUMS.txt -Value $sums
           Get-ChildItem dist | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v4

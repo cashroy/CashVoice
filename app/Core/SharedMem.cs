@@ -14,7 +14,8 @@ public struct SharedHeader
     public float Pitch, RingHz, RingMix, EchoMs, EchoFb, EchoMix, HpHz, LpHz, Drive, MicGain, SoundGain;
     public int SoundEnabled;
     public uint ApoSampleRate, ApoInstances, LeadFrames;
-    public uint Reserved0, Reserved1;
+    public uint Reserved0;      // heartbeat
+    public float Formant;       // semitones
     public long WritePos;
 }
 
@@ -111,6 +112,7 @@ public sealed unsafe class SharedMem : IDisposable
         h->VoiceEnabled = c.VoiceEnabled ? 1 : 0;
         h->MicMute = c.MicMuted ? 1 : 0;
         h->Pitch = (float)v.Pitch;
+        h->Formant = (float)v.Formant;
         h->RingHz = (float)v.RingHz;
         h->RingMix = (float)v.RingMix;
         h->EchoMs = (float)v.EchoMs;
