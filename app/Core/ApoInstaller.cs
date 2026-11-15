@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -19,16 +20,23 @@ public static class ApoInstaller
     public const string Clsid = "{8F3A7C21-5B6D-4E90-A1C4-7D2E9B0F6A38}";
 
     const string CaptureBase = @"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Capture";
-    const string SfxName = "{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";   // PKEY_FX_StreamEffectClsid
-    const string ModesName = "{d3993a3f-99c2-4402-b5ec-a92a0367664b},5"; // SFX processing modes (streaming)
+    const string Fx = "{d04e05a6-594b-4fb6-a80d-01af5eed7d1d}";
+    const string Modes = "{d3993a3f-99c2-4402-b5ec-a92a0367664b}";
+    const string LfxName = Fx + ",1";     // PKEY_FX_PreMixEffectClsid: legacy local (per-stream) effect
+    const string GfxName = Fx + ",2";     // PKEY_FX_PostMixEffectClsid: legacy global effect (Clownfish lives here)
+    const string SfxName = Fx + ",5";     // PKEY_FX_StreamEffectClsid (modern SFX; v0.1.0 used this)
     const string SysFxOffName = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5"; // PKEY_AudioEndpoint_Disable_SysFx ("Audio enhancements: Off")
     const string BackupBase = @"SOFTWARE\CashVoice\Backup";
     const string None = "<none>";
-    static readonly string[] Modes =
-    {
-        "{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}",   // Default
-        "{98951333-B9CD-48B1-A0A3-FF40682D73F7}",   // Communications (Discord/Teams/etc.)
-    };
+    public const string ClownfishClsid = "{80E0C6D1-9465-43B2-9BD5-27A3A56CF1B3}";
+
+    // Like Clownfish, we use the legacy LFX/GFX slots. While a mic has any modern SFX/MFX/EFX keys
+    // (or the newer composite lists) Windows ignores the legacy slots, so we remove those after
+    // backing them up. CashVoice takes the LFX slot and leaves GFX to Clownfish, so both can run
+    // on the same mic (mic -> Clownfish -> CashVoice -> app).
+    static readonly string[] RemovedForLegacy =
+        { SfxName, Fx + ",6", Fx + ",7", Fx + ",13", Fx + ",14", Fx + ",15", Modes + ",5", Modes + ",6", Modes + ",7" };
+    static readonly string[] Touched = RemovedForLegacy.Append(LfxName).Append(SysFxOffName).ToArray();
 
     // ---- public API ------------------------------------------------------------------
     public static string EndpointGuid(string deviceId)
@@ -47,21 +55,54 @@ public static class ApoInstaller
             foreach (var g in cap.GetSubKeyNames())
             {
                 using var fx = cap.OpenSubKey(g + @"\FxProperties");
-                if (fx?.GetValue(SfxName) is string s && s.Equals(Clsid, StringComparison.OrdinalIgnoreCase))
-                    set.Add(g);
+                if (fx != null && (Is(fx.GetValue(LfxName)) || Is(fx.GetValue(SfxName)))) set.Add(g);
             }
         }
         catch { }
         return set;
     }
 
+    static bool Is(object? v) => v is string s && s.Equals(Clsid, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when our APO is on the mic the current (legacy LFX slot) way.</summary>
+    static bool EnabledCurrentWay(string guid)
+    {
+        try
+        {
+            using var fx = Registry.LocalMachine.OpenSubKey($@"{CaptureBase}\{guid}\FxProperties");
+            using var bk = Registry.LocalMachine.OpenSubKey($@"{BackupBase}\{guid}");
+            return fx != null && Is(fx.GetValue(LfxName)) && bk?.GetValue("v") is int v && v == 2
+                   && RemovedForLegacy.All(n => fx.GetValue(n) == null);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>True if Clownfish's APO sits on this mic.</summary>
+    public static bool HasClownfish(string guid)
+    {
+        try
+        {
+            using var fx = Registry.LocalMachine.OpenSubKey($@"{CaptureBase}\{guid}\FxProperties");
+            return fx?.GetValue(GfxName) is string s && s.Equals(ClownfishClsid, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
     /// <summary>Runs in an elevated process: make exactly `desired` endpoints use the APO.</summary>
     public static void Apply(IEnumerable<string> desired)
     {
+        EnsureDataFolder();
         var want = new HashSet<string>(desired, StringComparer.OrdinalIgnoreCase);
         var have = EnabledEndpoints();
         bool changed = false;
-        foreach (var g in want.Where(g => !have.Contains(g))) { Enable(g); changed = true; }
+        foreach (var g in want.Where(g => !EnabledCurrentWay(g)))
+        {
+            // Hooked by v0.1.0 (SFX slot, older backup), or Windows/another app changed the keys
+            // since: put the original back first, then hook the legacy way.
+            if (have.Contains(g)) Disable(g);
+            Enable(g);
+            changed = true;
+        }
         // With "Audio enhancements" off, Windows skips every effect on that mic, CashVoice included.
         foreach (var g in want) if (TurnEnhancementsOn(g)) changed = true;
         foreach (var g in have.Where(g => !want.Contains(g))) { Disable(g); changed = true; }
@@ -92,6 +133,26 @@ public static class ApoInstaller
     }
 
     // ---- internals --------------------------------------------------------------------
+
+    /// <summary>
+    /// The APO keeps shared.bin and apo.log in C:\ProgramData\CashVoice. audiodg can't create that
+    /// folder itself, so make sure it exists with the same rights the installer grants.
+    /// </summary>
+    static void EnsureDataFolder()
+    {
+        try
+        {
+            var di = Directory.CreateDirectory(SharedMem.Folder);
+            var sec = di.GetAccessControl();
+            foreach (var sid in new[] { "S-1-1-0", "S-1-5-19", "S-1-5-33", "S-1-15-2-1" })
+                sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid), FileSystemRights.Modify,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None,
+                    AccessControlType.Allow));
+            di.SetAccessControl(sec);
+        }
+        catch { }
+    }
+
     static void Enable(string guid)
     {
         string path = $@"{CaptureBase}\{guid}\FxProperties";
@@ -99,23 +160,26 @@ public static class ApoInstaller
         using var key = Registry.LocalMachine.OpenSubKey(path, true)
                         ?? throw new InvalidOperationException("Endpoint not found: " + guid);
 
-        // Back up whatever effect the audio driver had so we can restore it later.
+        // Back up every value we touch, so Disable can put the mic back exactly as it was.
         using (var bk = Registry.LocalMachine.CreateSubKey($@"{BackupBase}\{guid}"))
         {
-            if (bk.GetValue("saved") == null)
+            if (bk.GetValue("v") is not int v || v != 2)
             {
-                bk.SetValue("sfx", key.GetValue(SfxName) as string ?? None, RegistryValueKind.String);
-                var modes = key.GetValue(ModesName) as string[];
-                bk.SetValue("modes", modes ?? new[] { None }, RegistryValueKind.MultiString);
-                bk.SetValue("sysfxoff", key.GetValue(SysFxOffName) is int off ? off : -1, RegistryValueKind.DWord);
-                bk.SetValue("saved", 1, RegistryValueKind.DWord);
+                foreach (var n in bk.GetValueNames()) bk.DeleteValue(n, false);
+                var absent = new List<string>();
+                foreach (var n in Touched)
+                {
+                    var val = key.GetValue(n, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                    if (val == null) absent.Add(n);
+                    else bk.SetValue(n, val, key.GetValueKind(n));
+                }
+                bk.SetValue("absent", absent.Count == 0 ? new[] { None } : absent.ToArray(), RegistryValueKind.MultiString);
+                bk.SetValue("v", 2, RegistryValueKind.DWord);
             }
         }
 
-        var existing = (key.GetValue(ModesName) as string[]) ?? Array.Empty<string>();
-        var merged = existing.Concat(Modes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        key.SetValue(SfxName, Clsid, RegistryValueKind.String);
-        key.SetValue(ModesName, merged, RegistryValueKind.MultiString);
+        foreach (var n in RemovedForLegacy) key.DeleteValue(n, false);
+        key.SetValue(LfxName, Clsid, RegistryValueKind.String);
     }
 
     /// <summary>True if the mic's "Audio enhancements" setting is Off (Windows then loads no effects).</summary>
@@ -148,19 +212,36 @@ public static class ApoInstaller
         if (key == null) return;
         using var bk = Registry.LocalMachine.OpenSubKey($@"{BackupBase}\{guid}");
 
-        string? sfx = bk?.GetValue("sfx") as string;
-        if (sfx == null || sfx == None) key.DeleteValue(SfxName, false);
-        else key.SetValue(SfxName, sfx, RegistryValueKind.String);
-
-        if (bk?.GetValue("sysfxoff") is int off)
+        if (bk?.GetValue("v") is int v && v == 2)
         {
-            if (off < 0) key.DeleteValue(SysFxOffName, false);
-            else key.SetValue(SysFxOffName, off, RegistryValueKind.DWord);
+            var absent = new HashSet<string>((bk.GetValue("absent") as string[]) ?? Array.Empty<string>(),
+                                             StringComparer.OrdinalIgnoreCase);
+            foreach (var n in Touched)
+            {
+                if (absent.Contains(n)) { key.DeleteValue(n, false); continue; }
+                var val = bk.GetValue(n, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if (val != null) key.SetValue(n, val, bk.GetValueKind(n));
+            }
         }
+        else
+        {
+            // v0.1.0 backup: only the SFX slot, its mode list and Disable_SysFx were changed.
+            const string sfxModes = Modes + ",5";
+            string? sfx = bk?.GetValue("sfx") as string;
+            if (sfx == null || sfx == None) key.DeleteValue(SfxName, false);
+            else key.SetValue(SfxName, sfx, RegistryValueKind.String);
 
-        var modes = bk?.GetValue("modes") as string[];
-        if (modes == null || (modes.Length == 1 && modes[0] == None)) key.DeleteValue(ModesName, false);
-        else key.SetValue(ModesName, modes, RegistryValueKind.MultiString);
+            if (bk?.GetValue("sysfxoff") is int off)
+            {
+                if (off < 0) key.DeleteValue(SysFxOffName, false);
+                else key.SetValue(SysFxOffName, off, RegistryValueKind.DWord);
+            }
+
+            var modes = bk?.GetValue("modes") as string[];
+            if (modes == null || (modes.Length == 1 && modes[0] == None)) key.DeleteValue(sfxModes, false);
+            else key.SetValue(sfxModes, modes, RegistryValueKind.MultiString);
+            if (Is(key.GetValue(LfxName))) key.DeleteValue(LfxName, false);
+        }
 
         try { Registry.LocalMachine.DeleteSubKeyTree($@"{BackupBase}\{guid}", false); } catch { }
     }

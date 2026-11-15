@@ -458,12 +458,18 @@ public partial class MainWindow : Window
         {
             var enabled = ApoInstaller.EnabledEndpoints();
             using var en = new MMDeviceEnumerator();
+            string defId = "";
+            try { if (en.HasDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia))
+                      defId = en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia).ID; } catch { }
             foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
             {
                 string guid = ApoInstaller.EndpointGuid(d.ID);
+                string label = d.FriendlyName;
+                if (d.ID == defId) label += "  · default";
+                if (ApoInstaller.HasClownfish(guid)) label += "  · Clownfish";
                 MicList.Children.Add(new CheckBox
                 {
-                    Content = d.FriendlyName, Tag = guid, Margin = new Thickness(0, 2, 0, 2),
+                    Content = label, Tag = guid, Margin = new Thickness(0, 2, 0, 2),
                     IsChecked = enabled.Contains(guid, StringComparer.OrdinalIgnoreCase),
                 });
             }
@@ -485,13 +491,43 @@ public partial class MainWindow : Window
     {
         var chosen = MicList.Children.OfType<CheckBox>()
             .Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToList();
+        var clownfish = System.Diagnostics.Process.GetProcessesByName("ClownfishVoiceChanger");
         bool ok = ApoInstaller.ApplyElevated(chosen);
         RefreshMics();
         _hooked = null;
-        MessageBox.Show(ok
-            ? "Done. Windows audio was restarted. Restart apps that were already using the mic (Discord, OBS, games…) so they pick up the effect."
-            : "That didn't complete (admin permission was declined, or Windows blocked the change).",
-            "CashVoice", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        if (!ok)
+        {
+            MessageBox.Show("That didn't complete (admin permission was declined, or Windows blocked the change).",
+                "CashVoice", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        const string done = "Done. Windows audio was restarted. Restart apps that were already using the mic (Discord, OBS, games…) so they pick up the effect.";
+        if (clownfish.Length == 0)
+        {
+            MessageBox.Show(done, "CashVoice", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        // Restarting Windows audio cuts Clownfish off from its effect until Clownfish itself restarts.
+        if (MessageBox.Show(done + "\n\nClownfish was running and stops working after an audio restart. Restart Clownfish now?",
+                "CashVoice", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            RestartClownfish(clownfish);
+    }
+
+    static void RestartClownfish(System.Diagnostics.Process[] procs)
+    {
+        string? path = null;
+        foreach (var p in procs)
+        {
+            try { path ??= p.MainModule?.FileName; p.Kill(); p.WaitForExit(5000); }
+            catch { }
+        }
+        path ??= @"C:\Program Files (x86)\ClownfishVoiceChanger\ClownfishVoiceChanger.exe";
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
+        catch
+        {
+            MessageBox.Show("Couldn't restart Clownfish. Please start it again yourself.", "CashVoice",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     void Settings_Changed(object sender, RoutedEventArgs e)

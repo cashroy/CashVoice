@@ -216,8 +216,11 @@ public:
         *ppRegProps = p;
         return S_OK;
     }
-    STDMETHOD(Initialize)(UINT32, BYTE*) override {
-        Log(L"Initialize");
+    // Works for both slot styles: the legacy LFX/GFX slots pass APOInitSystemEffects, the modern
+    // SFX/MFX ones APOInitSystemEffects2 (bigger). We need nothing from either.
+    STDMETHOD(Initialize)(UINT32 cbData, BYTE*) override {
+        Log(L"Initialize (%u bytes of init data: %s slot)", cbData,
+            cbData >= sizeof(APOInitSystemEffects2) ? L"modern" : L"legacy");
         GetShared();                 // create the shared mapping early (non-realtime thread)
         return S_OK;
     }
