@@ -10,7 +10,7 @@
   <DockPanel>
 
     <!-- ============ red header ============ -->
-    <Border DockPanel.Dock="Top" Background="{StaticResource Red}" Padding="32,24,32,26">
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Red}" Padding="32,24,32,26">
       <DockPanel>
         <ToggleButton x:Name="VoiceToggle" DockPanel.Dock="Right" VerticalAlignment="Center"
                       Style="{StaticResource HeaderToggle}" Content="Voice off" Click="VoiceToggle_Click"/>
@@ -154,7 +154,7 @@
               <Button Content="Apply" Style="{StaticResource Primary}" Padding="26,0" Click="ApplyMics_Click"/>
               <Button Content="Refresh list" Style="{StaticResource Quiet}" Margin="10,0,0,0" Click="RefreshMics_Click"/>
             </StackPanel>
-            <Border Background="{StaticResource Tint}" CornerRadius="12" Padding="16,12" Margin="0,16,0,0">
+            <Border Background="{DynamicResource Tint}" CornerRadius="12" Padding="16,12" Margin="0,16,0,0">
               <DockPanel>
                 <Button DockPanel.Dock="Right" Content="Sound settings" Style="{StaticResource Quiet}" Margin="12,0,0,0"
                         VerticalAlignment="Center" Click="OpenSoundSettings_Click"/>
@@ -190,7 +190,7 @@
             <TextBlock Text="HOTKEYS" Style="{StaticResource Eyebrow}"/>
             <TextBlock Text="Global shortcuts" Style="{StaticResource H2}" Margin="0,0,0,10"/>
             <StackPanel x:Name="GlobalHotkeys"/>
-            <TextBlock x:Name="HotkeyStatus" Foreground="{StaticResource Red}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,0"/>
+            <TextBlock x:Name="HotkeyStatus" Foreground="{DynamicResource Red}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,0"/>
             <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0"
                        Text="Each voice and each sound can have its own hotkey too."/>
 

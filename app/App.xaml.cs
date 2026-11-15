@@ -10,6 +10,24 @@ public partial class App : Application
 {
     static Mutex? _mutex;
 
+    /// <summary>Brand red as it should be sent to this display (matches the website in a browser).</summary>
+    public static System.Windows.Media.Color Accent { get; private set; } = System.Windows.Media.Color.FromRgb(0xE1, 0x06, 0x00);
+
+    void ApplyDisplayColors()
+    {
+        System.Windows.Media.Color Fix(string key, byte r, byte g, byte b)
+        {
+            var (R, G, B) = DisplayColor.ForDisplay(r, g, b);
+            var c = System.Windows.Media.Color.FromRgb(R, G, B);
+            if (Resources[key] is System.Windows.Media.SolidColorBrush br && !br.IsFrozen) br.Color = c;
+            else Resources[key] = new System.Windows.Media.SolidColorBrush(c);
+            return c;
+        }
+        Accent = Fix("Red", 0xE1, 0x06, 0x00);
+        Fix("Tint", 0xFF, 0xF4, 0xF3);
+        Resources["RedColor"] = Accent;
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -58,6 +76,8 @@ public partial class App : Application
             catch (AbandonedMutexException) { created = true; }
         }
         if (!created) { Shutdown(); return; }
+
+        ApplyDisplayColors();
 
         bool hidden = args.Contains("--minimized");
         var w = new MainWindow();

@@ -79,11 +79,12 @@ public sealed class AppConfig
 
     public static Dictionary<string, string> DefaultHotkeys() => new()
     {
-        ["toggle"] = "Ctrl+Alt+F1",
-        ["next"]   = "Ctrl+Alt+F2",
-        ["prev"]   = "Ctrl+Alt+F3",
-        ["mute"]   = "Ctrl+Alt+F4",
-        ["stop"]   = "Ctrl+Alt+F5",
+        // Ctrl+Alt+F-keys are often taken by OEM/graphics utilities, so default to Ctrl+Shift+F6..F10.
+        ["toggle"] = "Ctrl+Shift+F6",
+        ["next"]   = "Ctrl+Shift+F7",
+        ["prev"]   = "Ctrl+Shift+F8",
+        ["mute"]   = "Ctrl+Shift+F9",
+        ["stop"]   = "Ctrl+Shift+F10",
     };
 
     public static List<VoicePreset> DefaultVoices() => new()
@@ -118,6 +119,11 @@ public sealed class AppConfig
         // "demon" was a built-in voice in early builds; it's been retired.
         foreach (var v in Voices.Where(v => v.Id == "demon").ToList()) Voices.Remove(v);
         if (Voices.Count == 0) Voices = new(DefaultVoices());
+        // Move anyone still on the old defaults (which clash on many PCs) to the new ones.
+        string[] oldDefaults = { "Ctrl+Alt+F1", "Ctrl+Alt+F2", "Ctrl+Alt+F3", "Ctrl+Alt+F4", "Ctrl+Alt+F5" };
+        string[] keys = { "toggle", "next", "prev", "mute", "stop" };
+        if (keys.Select((k, i) => GlobalHotkeys.TryGetValue(k, out var v) && v == oldDefaults[i]).All(x => x))
+            GlobalHotkeys = DefaultHotkeys();
         foreach (var kv in DefaultHotkeys())
             if (!GlobalHotkeys.ContainsKey(kv.Key)) GlobalHotkeys[kv.Key] = kv.Value;
         if (!Voices.Any(v => v.Id == SelectedVoiceId)) SelectedVoiceId = Voices[0].Id;

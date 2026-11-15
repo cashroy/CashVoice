@@ -18,6 +18,11 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Inter (SIL Open Font License, see Fonts/Inter-LICENSE.txt): same typeface as cashroy.github.io -->
+    <Resource Include="Fonts\*.ttf" />
+    <None Include="Fonts\Inter-LICENSE.txt" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Microsoft.Win32.Registry.AccessControl" Version="8.0.0" />
   </ItemGroup>

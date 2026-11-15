@@ -21,6 +21,7 @@ public static class ApoInstaller
     const string CaptureBase = @"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Capture";
     const string SfxName = "{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";   // PKEY_FX_StreamEffectClsid
     const string ModesName = "{d3993a3f-99c2-4402-b5ec-a92a0367664b},5"; // SFX processing modes (streaming)
+    const string SysFxOffName = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5"; // PKEY_AudioEndpoint_Disable_SysFx ("Audio enhancements: Off")
     const string BackupBase = @"SOFTWARE\CashVoice\Backup";
     const string None = "<none>";
     static readonly string[] Modes =
@@ -61,6 +62,8 @@ public static class ApoInstaller
         var have = EnabledEndpoints();
         bool changed = false;
         foreach (var g in want.Where(g => !have.Contains(g))) { Enable(g); changed = true; }
+        // With "Audio enhancements" off, Windows skips every effect on that mic, CashVoice included.
+        foreach (var g in want) if (TurnEnhancementsOn(g)) changed = true;
         foreach (var g in have.Where(g => !want.Contains(g))) { Disable(g); changed = true; }
         if (changed) RestartAudio();
     }
@@ -104,6 +107,7 @@ public static class ApoInstaller
                 bk.SetValue("sfx", key.GetValue(SfxName) as string ?? None, RegistryValueKind.String);
                 var modes = key.GetValue(ModesName) as string[];
                 bk.SetValue("modes", modes ?? new[] { None }, RegistryValueKind.MultiString);
+                bk.SetValue("sysfxoff", key.GetValue(SysFxOffName) is int off ? off : -1, RegistryValueKind.DWord);
                 bk.SetValue("saved", 1, RegistryValueKind.DWord);
             }
         }
@@ -112,6 +116,28 @@ public static class ApoInstaller
         var merged = existing.Concat(Modes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         key.SetValue(SfxName, Clsid, RegistryValueKind.String);
         key.SetValue(ModesName, merged, RegistryValueKind.MultiString);
+    }
+
+    /// <summary>True if the mic's "Audio enhancements" setting is Off (Windows then loads no effects).</summary>
+    public static bool EnhancementsOff(string guid)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey($@"{CaptureBase}\{guid}\FxProperties");
+            return key?.GetValue(SysFxOffName) is int v && v != 0;
+        }
+        catch { return false; }
+    }
+
+    static bool TurnEnhancementsOn(string guid)
+    {
+        if (!EnhancementsOff(guid)) return false;
+        string path = $@"{CaptureBase}\{guid}\FxProperties";
+        TakeOwnershipAndGrant(path);
+        using var key = Registry.LocalMachine.OpenSubKey(path, true);
+        if (key == null) return false;
+        key.SetValue(SysFxOffName, 0, RegistryValueKind.DWord);
+        return true;
     }
 
     static void Disable(string guid)
@@ -125,6 +151,12 @@ public static class ApoInstaller
         string? sfx = bk?.GetValue("sfx") as string;
         if (sfx == null || sfx == None) key.DeleteValue(SfxName, false);
         else key.SetValue(SfxName, sfx, RegistryValueKind.String);
+
+        if (bk?.GetValue("sysfxoff") is int off)
+        {
+            if (off < 0) key.DeleteValue(SysFxOffName, false);
+            else key.SetValue(SysFxOffName, off, RegistryValueKind.DWord);
+        }
 
         var modes = bk?.GetValue("modes") as string[];
         if (modes == null || (modes.Length == 1 && modes[0] == None)) key.DeleteValue(ModesName, false);

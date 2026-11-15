@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     bool _updating;
     int _ticks;
     bool? _hooked;
+    bool _enhOff;
     uint _lastBeat;
     readonly List<Action> _syncers = new();
     readonly Dictionary<string, HotkeyBox> _globalBoxes = new();
@@ -55,7 +56,8 @@ public partial class MainWindow : Window
     {
         base.OnSourceInitialized(e);
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        int red = 0x0006E1, white = 0xFFFFFF;          // COLORREF is 0x00BBGGRR
+        var a = App.Accent;
+        int red = a.R | (a.G << 8) | (a.B << 16), white = 0xFFFFFF;   // COLORREF is 0x00BBGGRR
         DwmSetWindowAttribute(hwnd, 35, ref red, 4);   // DWMWA_CAPTION_COLOR
         DwmSetWindowAttribute(hwnd, 34, ref red, 4);   // DWMWA_BORDER_COLOR
         DwmSetWindowAttribute(hwnd, 36, ref white, 4); // DWMWA_TEXT_COLOR
@@ -619,7 +621,12 @@ public partial class MainWindow : Window
         if (!_shm.Connected && (++_ticks % 3 == 0 || _ticks == 1) && _shm.TryConnect()) PushParams();
         else if (_shm.Connected) PushParams();     // heartbeat: keeps the APO in sync if audio service restarted
 
-        if (_ticks % 5 == 1 || _hooked == null) _hooked = ApoInstaller.EnabledEndpoints().Count > 0;
+        if (_ticks % 5 == 1 || _hooked == null)
+        {
+            var hooked = ApoInstaller.EnabledEndpoints();
+            _hooked = hooked.Count > 0;
+            _enhOff = hooked.Any(ApoInstaller.EnhancementsOff);
+        }
         uint beat = _shm.Heartbeat;
         bool live = _shm.Connected && beat != _lastBeat;
         _lastBeat = beat;
@@ -627,6 +634,8 @@ public partial class MainWindow : Window
         string status;
         if (live)
             status = $"Live on your mic · {_shm.ApoSampleRate / 1000.0:0.#} kHz";
+        else if (_hooked == true && _enhOff)
+            status = "Your mic's Audio enhancements are off, so Windows skips CashVoice. Press Apply in Settings to fix it.";
         else if (_hooked == true)
             status = "On your mic. It switches on whenever an app is using the mic.";
         else
