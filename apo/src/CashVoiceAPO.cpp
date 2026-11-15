@@ -309,10 +309,7 @@ public:
                 wf ? wf->wBitsPerSample : 0, wf ? wf->nChannels : 0);
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
-        *ppSupported = pRequested;
-        pRequested->AddRef();
-        m_channels = ch;
-        return S_OK;
+        return Negotiate(pOpposite, pRequested, ppSupported, L"input");
     }
     STDMETHOD(IsOutputFormatSupported)(IAudioMediaType* pOpposite, IAudioMediaType* pRequested,
                                        IAudioMediaType** ppSupported) override {
@@ -325,8 +322,27 @@ public:
             Log(L"IsOutputFormatSupported: rejected");
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
+        return Negotiate(pOpposite, pRequested, ppSupported, L"output");
+    }
+
+    // We process in place, so input and output must be the same format. When the engine asks for
+    // a different channel count or rate on the other side (e.g. mono mic in, stereo out), say
+    // "not that, but this" (S_FALSE + the opposite format) like Microsoft's base APO does; the
+    // engine then adds its own converter after us. Saying S_OK there made it drop the APO.
+    HRESULT Negotiate(IAudioMediaType* pOpposite, IAudioMediaType* pRequested,
+                      IAudioMediaType** ppSupported, const wchar_t* side) {
+        UINT32 rc = 0, rr = 0, oc = 0, orate = 0;
+        IsFloat32(pRequested, &rc, &rr);
+        if (pOpposite && IsFloat32(pOpposite, &oc, &orate) && (oc != rc || orate != rr)) {
+            *ppSupported = pOpposite;
+            pOpposite->AddRef();
+            m_channels = oc;
+            Log(L"%s format: suggesting %u ch %u Hz instead", side, oc, orate);
+            return S_FALSE;
+        }
         *ppSupported = pRequested;
         pRequested->AddRef();
+        m_channels = rc;
         return S_OK;
     }
     STDMETHOD(GetInputChannelCount)(UINT32* pCount) override {
